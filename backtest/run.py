@@ -6,25 +6,73 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
+import pandas as pd
+import yfinance as yf
 from config import settings
 from data.fetcher import fetch_historical
 from strategy.orb import prepare_orb
 from strategy.donchian import prepare_donchian
+from strategy.break_retest import prepare_break_retest
 from backtest.engine import run_backtest
 from backtest.report import generate_report, print_report
+
+
+def _fetch_vix_daily() -> pd.Series:
+    """
+    Fetch daily VIX close prices for the backtest window.
+    Returns a Series indexed by date (naive, date only) for easy merging.
+    """
+    try:
+        df = yf.download("^VIX", period="730d", interval="1d",
+                         progress=False, auto_adjust=True)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [c.lower() for c in df.columns]
+        series = df["close"].dropna()
+        series.index = pd.to_datetime(series.index).normalize()
+        return series
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+def _apply_vix_filter(df: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
+    """
+    Zero out any signals on days where the closing VIX exceeded VIX_EXTREME.
+    This mirrors the live fundamentals gate applied in main.py.
+    """
+    if vix.empty:
+        return df
+    try:
+        bar_dates = df.index.normalize()
+    except Exception:
+        bar_dates = pd.to_datetime(df.index).normalize()
+
+    daily_vix = bar_dates.map(vix)
+    blocked = daily_vix > settings.VIX_EXTREME
+    df = df.copy()
+    df.loc[blocked, "signal"]      = 0
+    df.loc[blocked, "stop_loss"]   = float("nan")
+    df.loc[blocked, "take_profit"] = float("nan")
+    n_blocked = int(blocked.sum())
+    if n_blocked:
+        print(f"  VIX gate blocked signals on {blocked[blocked].index.normalize().unique().shape[0]} days"
+              f" ({n_blocked} bars) where VIX > {settings.VIX_EXTREME}")
+    return df
 
 INITIAL_CAPITAL = 3000.0
 
 # Timeframe per strategy
 STRATEGY_TIMEFRAME = {
-    "ORB": 60,      # 1h candles
+    "ORB":      60,    # 1h candles
     "DONCHIAN": 1440,  # Daily candles
+    "BRT":      15,    # 15-min candles (60 days max from yfinance)
 }
 
 # yfinance period per strategy
 STRATEGY_PERIOD = {
-    "ORB": "730d",
+    "ORB":      "730d",
     "DONCHIAN": "5y",
+    "BRT":      "60d",   # max for 15-min interval from yfinance
 }
 
 
@@ -42,6 +90,12 @@ def backtest_symbol(symbol: str):
     elif strategy == "DONCHIAN":
         long_only = symbol in settings.LONG_ONLY_SYMBOLS
         df = prepare_donchian(df, long_only=long_only)
+    elif strategy == "BRT":
+        long_only = symbol in settings.LONG_ONLY_SYMBOLS
+        df = prepare_break_retest(df, long_only=long_only)
+        # Apply historical VIX gate — mirrors the live fundamentals filter
+        vix = _fetch_vix_daily()
+        df  = _apply_vix_filter(df, vix)
 
     result = run_backtest(df, strategy=strategy, initial_capital=INITIAL_CAPITAL)
     metrics = generate_report(result, symbol)
