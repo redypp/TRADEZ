@@ -1,12 +1,12 @@
 import pandas as pd
-import pandas_ta as ta
+import ta
 from config import settings
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate all technical indicators used by the strategy.
-    Adds columns to the DataFrame in place and returns it.
+    Adds columns to the DataFrame and returns it.
 
     Indicators:
         ema_fast  — EMA 20
@@ -18,18 +18,19 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # Trend indicators
-    df["ema_fast"] = ta.ema(df["close"], length=settings.EMA_FAST)
-    df["ema_slow"] = ta.ema(df["close"], length=settings.EMA_SLOW)
+    df["ema_fast"] = ta.trend.ema_indicator(df["close"], window=settings.EMA_FAST)
+    df["ema_slow"] = ta.trend.ema_indicator(df["close"], window=settings.EMA_SLOW)
 
     # ADX — measures trend strength regardless of direction
-    adx = ta.adx(df["high"], df["low"], df["close"], length=settings.ADX_PERIOD)
-    df["adx"] = adx[f"ADX_{settings.ADX_PERIOD}"]
+    adx_indicator = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=settings.ADX_PERIOD)
+    df["adx"] = adx_indicator.adx()
 
     # ATR — used for stop loss and take profit sizing
-    df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=settings.ATR_PERIOD)
+    atr_indicator = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], window=settings.ATR_PERIOD)
+    df["atr"] = atr_indicator.average_true_range()
 
-    # RSI — used as an additional entry filter
-    df["rsi"] = ta.rsi(df["close"], length=14)
+    # RSI — additional entry filter
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
 
     # Drop rows where indicators haven't warmed up yet
     df.dropna(inplace=True)

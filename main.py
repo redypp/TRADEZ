@@ -23,7 +23,7 @@ def run_strategy_check(symbol: str):
     """Pull data, calculate indicators, and print latest signal for a symbol."""
     logger.info(f"--- {symbol} ---")
 
-    df = fetch_historical(symbol, period="2y", timeframe_minutes=settings.TIMEFRAME)
+    df = fetch_historical(symbol, timeframe_minutes=settings.TIMEFRAME)
     df = add_indicators(df)
     df = generate_signals(df)
 

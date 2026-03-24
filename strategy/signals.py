@@ -20,8 +20,9 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
 
     # Detect EMA crossover
     df["ema_above"] = df["ema_fast"] > df["ema_slow"]
-    df["cross_up"] = df["ema_above"] & ~df["ema_above"].shift(1).fillna(False)
-    df["cross_down"] = ~df["ema_above"] & df["ema_above"].shift(1).fillna(False)
+    prev_ema_above = df["ema_above"].shift(1, fill_value=False).astype(bool)
+    df["cross_up"] = df["ema_above"] & ~prev_ema_above
+    df["cross_down"] = ~df["ema_above"] & prev_ema_above
 
     # Trend strength filter
     df["trend_strong"] = df["adx"] > settings.ADX_THRESHOLD
