@@ -1,0 +1,274 @@
+//@version=5
+strategy("MES Break & Retest", shorttitle="MES B&R", overlay=true,
+     initial_capital=2000,
+     default_qty_type=strategy.fixed,
+     default_qty_value=1,
+     pyramiding=0,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=2.94,
+     slippage=1,
+     currency=currency.USD)
+
+// ─── Inputs ───────────────────────────────────────────────────────────────────
+adx_min      = input.int(20,    "ADX Min",                  group="Filters")
+rsi_min      = input.int(35,    "RSI Min (Long)",            group="Filters")
+rsi_max      = input.int(75,    "RSI Max (Long)",            group="Filters")
+atr_period   = input.int(14,    "ATR Period",                group="Indicators")
+ema_period   = input.int(20,    "EMA Period",                group="Indicators")
+tp_rr        = input.float(2.0, "TP R:R",                   group="B&R Settings")
+sl_buf       = input.float(0.3, "SL Buffer (ATR mult)",     group="B&R Settings")
+brt_buf      = input.float(0.15,"Break Buffer (ATR mult)",  group="B&R Settings")
+brt_body_min = input.float(0.20,"Min Break Body (ATR mult)",group="B&R Settings")
+brt_tol      = input.float(0.25,"Retest Tolerance (ATR)",   group="B&R Settings")
+brt_max_bars = input.int(16,    "Max Retest Bars (16=4h)",  group="B&R Settings")
+vol_thresh   = input.float(1.2, "Break Volume Threshold",   group="B&R Settings")
+swing_len    = input.int(20,    "Swing Window",             group="B&R Settings")
+
+// ─── Daily Bias (top-down) ────────────────────────────────────────────────────
+// Use daily SMA50: price above = bullish bias (longs only), below = bearish bias (shorts only)
+d_sma50     = request.security(syminfo.tickerid, "D", ta.sma(close, 50), lookahead=barmerge.lookahead_off)
+daily_bull  = close > d_sma50
+daily_bear  = close < d_sma50
+
+// ─── Indicators ──────────────────────────────────────────────────────────────
+ema20        = ta.ema(close, ema_period)
+atr          = ta.atr(atr_period)
+[_, _, adx_v]= ta.dmi(atr_period, atr_period)
+rsi_v        = ta.rsi(close, 14)
+vol_ma       = ta.sma(volume, 20)
+vwap_v       = ta.vwap
+sma20        = ta.sma(close, 20)
+
+// ─── Time helpers (ET) ───────────────────────────────────────────────────────
+et_hour   = hour(time,   "America/New_York")
+et_minute = minute(time, "America/New_York")
+is_new_day = ta.change(time("D")) != 0
+
+// Session: full regular hours 10am–3pm ET (avoids open chop and EOD)
+in_session = et_hour >= 10 and et_hour < 15
+
+// ─── PDH / PDL (Previous Day High/Low) ───────────────────────────────────────
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead=barmerge.lookahead_on)
+
+// ─── Opening Range (9:30–10:00 ET = first two 15-min bars) ───────────────────
+var float orh_val  = na
+var float orl_val  = na
+var bool  or_ready = false
+
+if is_new_day
+    orh_val  := na
+    orl_val  := na
+    or_ready := false
+
+is_or_bar = (et_hour == 9 and (et_minute == 30 or et_minute == 45))
+if is_or_bar
+    orh_val  := na(orh_val) ? high : math.max(orh_val, high)
+    orl_val  := na(orl_val) ? low  : math.min(orl_val, low)
+    or_ready := true
+
+// ─── Swing Levels (20-bar) ────────────────────────────────────────────────────
+swing_hi = ta.highest(high, swing_len)[1]
+swing_lo = ta.lowest(low,  swing_len)[1]
+
+// ─── Volume filter (break candle only) ───────────────────────────────────────
+vol_ok = volume >= vol_thresh * vol_ma
+
+// ─── B&R State Machine — LONG ────────────────────────────────────────────────
+var string brt_state_l     = "NEUTRAL"
+var float  brt_level_l     = na
+var string brt_ltype_l     = ""
+var int    brt_break_bar_l = 0
+var float  brt_sl_l        = na
+var float  brt_tp_l        = na
+var bool   brt_fired_l     = false
+
+brt_fired_l := false
+
+brt_tol_l = brt_ltype_l == "VWAP" ? 0.15 * atr : brt_tol * atr
+
+if brt_state_l == "WATCHING_LONG"
+    bars_waited = bar_index - brt_break_bar_l
+    if bars_waited > brt_max_bars
+        brt_state_l := "NEUTRAL"
+        brt_level_l := na
+        brt_ltype_l := ""
+    else
+        in_zone  = low <= brt_level_l + brt_tol_l and close >= brt_level_l - brt_tol_l
+        if in_zone and in_session and daily_bull
+            candle_ok = (close - open) > 0
+            close_ok  = close > brt_level_l
+            ema_ok    = close > ema20
+            adx_ok    = adx_v > adx_min
+            rsi_ok    = rsi_v > rsi_min and rsi_v < rsi_max
+            if candle_ok and close_ok and ema_ok and adx_ok and rsi_ok
+                sl_c = low  - sl_buf * atr
+                sl_l = brt_level_l - sl_buf * atr
+                brt_sl_l := math.min(sl_c, sl_l)
+                risk = close - brt_sl_l
+                if risk > 0
+                    brt_tp_l    := close + tp_rr * risk
+                    brt_fired_l := true
+                    brt_state_l := "NEUTRAL"
+                    brt_level_l := na
+                    brt_ltype_l := ""
+        if close < brt_level_l - brt_tol_l
+            brt_state_l := "NEUTRAL"
+            brt_level_l := na
+            brt_ltype_l := ""
+
+if brt_state_l == "NEUTRAL" and in_session
+    buf = brt_buf * atr
+    // VWAP (highest priority — resets every day, most watched level)
+    if not na(vwap_v) and (close - open) >= brt_body_min * atr and close > vwap_v + buf and vol_ok
+        brt_state_l     := "WATCHING_LONG"
+        brt_level_l     := vwap_v
+        brt_ltype_l     := "VWAP"
+        brt_break_bar_l := bar_index
+    // PDH
+    else if not na(pdh) and (close - open) >= brt_body_min * atr and close > pdh + buf and vol_ok
+        brt_state_l     := "WATCHING_LONG"
+        brt_level_l     := pdh
+        brt_ltype_l     := "PDH"
+        brt_break_bar_l := bar_index
+    // Opening Range High
+    else if or_ready and not na(orh_val) and (close - open) >= brt_body_min * atr and close > orh_val + buf and vol_ok
+        brt_state_l     := "WATCHING_LONG"
+        brt_level_l     := orh_val
+        brt_ltype_l     := "ORH"
+        brt_break_bar_l := bar_index
+    // 20-bar Swing High
+    else if not na(swing_hi) and (close - open) >= brt_body_min * atr and close > swing_hi + buf and vol_ok
+        brt_state_l     := "WATCHING_LONG"
+        brt_level_l     := swing_hi
+        brt_ltype_l     := "SWING"
+        brt_break_bar_l := bar_index
+
+// ─── B&R State Machine — SHORT ───────────────────────────────────────────────
+var string brt_state_s     = "NEUTRAL"
+var float  brt_level_s     = na
+var string brt_ltype_s     = ""
+var int    brt_break_bar_s = 0
+var float  brt_sl_s        = na
+var float  brt_tp_s        = na
+var bool   brt_fired_s     = false
+
+brt_fired_s := false
+
+brt_tol_s = brt_ltype_s == "VWAP" ? 0.15 * atr : brt_tol * atr
+
+if brt_state_s == "WATCHING_SHORT"
+    bars_waited = bar_index - brt_break_bar_s
+    if bars_waited > brt_max_bars
+        brt_state_s := "NEUTRAL"
+        brt_level_s := na
+        brt_ltype_s := ""
+    else
+        in_zone  = high >= brt_level_s - brt_tol_s and close <= brt_level_s + brt_tol_s
+        if in_zone and in_session and daily_bear
+            candle_ok = (open - close) > 0
+            close_ok  = close < brt_level_s
+            ema_ok    = close < ema20
+            adx_ok    = adx_v > adx_min
+            rsi_ok    = rsi_v > (100 - rsi_max) and rsi_v < (100 - rsi_min)
+            if candle_ok and close_ok and ema_ok and adx_ok and rsi_ok
+                sl_c = high + sl_buf * atr
+                sl_l = brt_level_s + sl_buf * atr
+                brt_sl_s := math.max(sl_c, sl_l)
+                risk = brt_sl_s - close
+                if risk > 0
+                    brt_tp_s    := close - tp_rr * risk
+                    brt_fired_s := true
+                    brt_state_s := "NEUTRAL"
+                    brt_level_s := na
+                    brt_ltype_s := ""
+        if close > brt_level_s + brt_tol_s
+            brt_state_s := "NEUTRAL"
+            brt_level_s := na
+            brt_ltype_s := ""
+
+if brt_state_s == "NEUTRAL" and in_session
+    buf = brt_buf * atr
+    // VWAP breakdown
+    if not na(vwap_v) and (open - close) >= brt_body_min * atr and close < vwap_v - buf and vol_ok
+        brt_state_s     := "WATCHING_SHORT"
+        brt_level_s     := vwap_v
+        brt_ltype_s     := "VWAP"
+        brt_break_bar_s := bar_index
+    // PDL
+    else if not na(pdl) and (open - close) >= brt_body_min * atr and close < pdl - buf and vol_ok
+        brt_state_s     := "WATCHING_SHORT"
+        brt_level_s     := pdl
+        brt_ltype_s     := "PDL"
+        brt_break_bar_s := bar_index
+    // Opening Range Low
+    else if or_ready and not na(orl_val) and (open - close) >= brt_body_min * atr and close < orl_val - buf and vol_ok
+        brt_state_s     := "WATCHING_SHORT"
+        brt_level_s     := orl_val
+        brt_ltype_s     := "ORL"
+        brt_break_bar_s := bar_index
+    // 20-bar Swing Low
+    else if not na(swing_lo) and (open - close) >= brt_body_min * atr and close < swing_lo - buf and vol_ok
+        brt_state_s     := "WATCHING_SHORT"
+        brt_level_s     := swing_lo
+        brt_ltype_s     := "SWING"
+        brt_break_bar_s := bar_index
+
+// ─── Strategy Entries ─────────────────────────────────────────────────────────
+if brt_fired_l and strategy.position_size == 0
+    strategy.entry("Long",  strategy.long,  qty=1)
+    strategy.exit("Long X", "Long",  stop=brt_sl_l, limit=brt_tp_l)
+
+if brt_fired_s and strategy.position_size == 0
+    strategy.entry("Short", strategy.short, qty=1)
+    strategy.exit("Short X","Short", stop=brt_sl_s, limit=brt_tp_s)
+
+// ─── Visuals ──────────────────────────────────────────────────────────────────
+plot(ema20,  "EMA 20", color=color.new(color.blue,   0), linewidth=1)
+plot(vwap_v, "VWAP",  color=color.new(color.orange,  0), linewidth=2)
+
+plot(pdh, "PDH", color=color.new(color.green, 40), style=plot.style_stepline, linewidth=1)
+plot(pdl, "PDL", color=color.new(color.red,   40), style=plot.style_stepline, linewidth=1)
+
+plot(or_ready ? orh_val : na, "ORH", color=color.new(color.lime,   10), style=plot.style_stepline, linewidth=2)
+plot(or_ready ? orl_val : na, "ORL", color=color.new(color.maroon, 10), style=plot.style_stepline, linewidth=2)
+
+plot(brt_state_l == "WATCHING_LONG"  ? brt_level_l : na, "Watch Long",  color=color.aqua,  linewidth=1, style=plot.style_circles)
+plot(brt_state_s == "WATCHING_SHORT" ? brt_level_s : na, "Watch Short", color=color.fuchsia, linewidth=1, style=plot.style_circles)
+
+plotshape(brt_fired_l, title="Long Entry",  location=location.belowbar, style=shape.triangleup,   color=color.green,  size=size.normal, text="L")
+plotshape(brt_fired_s, title="Short Entry", location=location.abovebar, style=shape.triangledown, color=color.red,    size=size.normal, text="S")
+
+bgcolor(brt_state_l == "WATCHING_LONG"  ? color.new(color.teal,   90) : na, title="Watching Long")
+bgcolor(brt_state_s == "WATCHING_SHORT" ? color.new(color.red,    93) : na, title="Watching Short")
+bgcolor(in_session                      ? color.new(color.gray,   97) : na, title="Trading Session")
+
+// Daily bias bar color hint
+barcolor(daily_bull ? color.new(color.green, 80) : daily_bear ? color.new(color.red, 80) : na)
+
+// ─── Info Table ───────────────────────────────────────────────────────────────
+var table tbl = table.new(position.top_right, 2, 9, border_width=1)
+if barstate.islast
+    table.cell(tbl, 0, 0, "MES B&R",        text_color=color.white, bgcolor=color.new(color.navy, 20))
+    table.cell(tbl, 1, 0, timeframe.period,  text_color=color.white, bgcolor=color.new(color.navy, 20))
+    table.cell(tbl, 0, 1, "Daily Bias")
+    table.cell(tbl, 1, 1, daily_bull ? "BULL" : "BEAR",
+         text_color=daily_bull ? color.green : color.red)
+    table.cell(tbl, 0, 2, "Long State")
+    table.cell(tbl, 1, 2, brt_state_l, text_color=brt_state_l == "NEUTRAL" ? color.gray : color.aqua)
+    table.cell(tbl, 0, 3, "Short State")
+    table.cell(tbl, 1, 3, brt_state_s, text_color=brt_state_s == "NEUTRAL" ? color.gray : color.fuchsia)
+    table.cell(tbl, 0, 4, "Watch Level")
+    long_lbl  = brt_state_l != "NEUTRAL" ? brt_ltype_l + " " + str.tostring(brt_level_l, "#.##") : "-"
+    short_lbl = brt_state_s != "NEUTRAL" ? brt_ltype_s + " " + str.tostring(brt_level_s, "#.##") : "-"
+    table.cell(tbl, 1, 4, long_lbl + " / " + short_lbl)
+    table.cell(tbl, 0, 5, "ADX")
+    table.cell(tbl, 1, 5, str.tostring(adx_v, "#.1") + (adx_v > adx_min ? "  ok" : "  --"),
+         text_color=adx_v > adx_min ? color.green : color.red)
+    table.cell(tbl, 0, 6, "RSI")
+    table.cell(tbl, 1, 6, str.tostring(rsi_v, "#.1"))
+    table.cell(tbl, 0, 7, "OR Hi / Lo")
+    table.cell(tbl, 1, 7, or_ready ? str.tostring(orh_val, "#.##") + " / " + str.tostring(orl_val, "#.##") : "not set")
+    table.cell(tbl, 0, 8, "Session")
+    table.cell(tbl, 1, 8, in_session ? "OPEN" : "closed",
+         text_color=in_session ? color.green : color.gray)

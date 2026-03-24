@@ -107,6 +107,82 @@ def prepare_orb(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def get_orb_signal_15min(df: pd.DataFrame) -> dict:
+    """
+    Derive an ORB signal from a 15-min dataframe that already has orh/orl columns
+    (computed by prepare_break_retest).
+
+    Entry rules (long-only for MES):
+      - Current ET hour is in ORB_ENTRY_HOURS (10, 11, 12)
+      - Close > ORH (breakout above opening range high)
+      - Close > 20-bar SMA (trend filter)
+      - Only one signal per day (first breakout bar)
+
+    Returns a signal dict with the same shape as get_latest_brt_signal().
+    Returns signal=0 if no setup exists on the latest bar.
+    """
+    if "orh" not in df.columns or "orl" not in df.columns:
+        return {"signal": 0}
+
+    df = df.copy()
+
+    # ET hour
+    try:
+        df["_hour_et"] = df.index.tz_convert("America/New_York").hour
+        df["_date_et"] = df.index.tz_convert("America/New_York").normalize()
+    except Exception:
+        df["_hour_et"] = df.index.hour
+        df["_date_et"] = df.index.normalize()
+
+    if "sma20" not in df.columns:
+        df["sma20"] = df["close"].rolling(20).mean()
+
+    in_window  = df["_hour_et"].isin(settings.ORB_ENTRY_HOURS)
+    has_or     = df["orh"].notna() & df["orl"].notna()
+    or_size    = df["orh"] - df["orl"]
+    range_ok   = (
+        or_size < df["atr"] * settings.ORB_MAX_RANGE_ATR
+    ) & (
+        or_size > df["atr"] * settings.ORB_MIN_RANGE_ATR
+    )
+    trend_up   = df["close"] > df["sma20"]
+
+    long_cond = in_window & has_or & range_ok & (df["close"] > df["orh"]) & trend_up
+
+    # Mark first signal per day only
+    df["_orb_sig"] = 0
+    sig_rows = df[long_cond]
+    if not sig_rows.empty:
+        first_per_day = sig_rows.groupby("_date_et").head(1).index
+        df.loc[first_per_day, "_orb_sig"] = 1
+
+    last = df.iloc[-1]
+    if last["_orb_sig"] != 1:
+        return {"signal": 0}
+
+    orh_val  = float(last["orh"])
+    orl_val  = float(last["orl"])
+    or_sz    = orh_val - orl_val
+    buf      = or_sz * settings.ORB_SL_BUFFER
+    sl       = orl_val - buf
+    tp       = float(last["close"]) + or_sz * settings.ORB_TP_MULTIPLIER
+    risk     = float(last["close"]) - sl
+
+    return {
+        "signal":       1,
+        "close":        float(last["close"]),
+        "stop_loss":    round(sl, 2),
+        "take_profit":  round(tp, 2),
+        "or_high":      orh_val,
+        "or_low":       orl_val,
+        "atr":          float(last["atr"]) if pd.notna(last.get("atr")) else None,
+        "adx":          float(last["adx"]) if pd.notna(last.get("adx")) else None,
+        "rsi":          float(last["rsi"]) if pd.notna(last.get("rsi")) else None,
+        "level_type":   "ORB",
+        "retest_level": orh_val,
+    }
+
+
 def get_latest_orb_signal(df: pd.DataFrame) -> dict:
     """Return the latest ORB signal."""
     last = df.iloc[-1]
