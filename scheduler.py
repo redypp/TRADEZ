@@ -38,16 +38,11 @@ from data.fetcher import fetch_historical
 from data.fundamentals import get_live_fundamentals, print_fundamentals
 from data.trade_log import init_db, log_trade, log_event, update_bot_state, get_daily_summary
 from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
+from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
 from strategy.orb import get_orb_signal_15min
 from risk.manager import RiskBlock, check_all, check_daily_drawdown
-from execution.tradovate import (
-    authenticate,
-    get_account_equity,
-    get_open_mes_position,
-    place_bracket_order,
-    cancel_all_mes_orders,
-)
+from execution.router import router as _router
 from monitor.alerts import (
     notify_signal_check,
     notify_entry,
@@ -84,15 +79,14 @@ _session: dict = {
 # ─── Tradovate helpers ────────────────────────────────────────────────────────
 
 def _ensure_auth() -> None:
-    """Authenticate to Tradovate (token auto-renews if near expiry)."""
-    from execution.tradovate import _session, _get_token
-    _get_token()   # handles first-time auth + renewal
+    """Authenticate all brokers (token auto-renews if near expiry)."""
+    _router.connect_all()
 
 
 def _safe_get_equity() -> float:
-    """Return account equity, defaulting to $3,000 if API returns 0."""
+    """Return Tradovate account equity, defaulting to $3,000 if API returns 0."""
     try:
-        equity = get_account_equity()
+        equity = _router.get_broker_for("MES").get_account_equity()
         if equity <= 0:
             logger.warning("Account equity returned 0 — defaulting to $3,000")
             return 3000.0
@@ -169,7 +163,7 @@ def run_signal_check() -> None:
         except Exception: pass
 
         # ── Current MES position ──────────────────────────────────────────
-        open_position = get_open_mes_position()
+        open_position = _router.get_position("MES")
         logger.info(f"Open MES position: {open_position:+d} contracts")
 
         # ── Price data (regime params injected into strategy) ─────────────
@@ -177,8 +171,9 @@ def run_signal_check() -> None:
         df = prepare_break_retest(df, long_only=True, regime_params=regime_params)
 
         # ── Strategy signals (B&R priority; ORB fallback) ─────────────
-        brt_signal = get_latest_brt_signal(df)
-        orb_signal = get_orb_signal_15min(df)
+        brt_signal    = get_latest_brt_signal(df)
+        orb_signal    = get_orb_signal_15min(df)
+        vpoc_migration = vpoc_trend(df)  # "RISING" / "FALLING" / "NEUTRAL"
 
         if brt_signal.get("signal", 0) != 0:
             signal      = brt_signal
@@ -213,6 +208,16 @@ def run_signal_check() -> None:
                 "pdl":          signal.get("pdl"),
                 "swing_hi":     signal.get("swing_hi"),
                 "swing_lo":     signal.get("swing_lo"),
+                "prior_poc":    signal.get("prior_poc"),
+                "prior_vah":    signal.get("prior_vah"),
+                "prior_val":    signal.get("prior_val"),
+                "eqh":          signal.get("eqh"),
+                "eql":          signal.get("eql"),
+                "fvg_bull_low":  signal.get("fvg_bull_low"),
+                "fvg_bull_high": signal.get("fvg_bull_high"),
+                "fvg_bear_low":  signal.get("fvg_bear_low"),
+                "fvg_bear_high": signal.get("fvg_bear_high"),
+                "vpoc_migration": vpoc_migration,
                 "regime":       regime_info["regime"],
                 "vix":          fundamentals.get("vix"),
                 "yield_10y":    fundamentals.get("yield_10y"),
@@ -246,15 +251,18 @@ def run_signal_check() -> None:
                 tp_price    = float(signal["take_profit"])
                 level_type  = signal.get("level_type", "")
                 retest_lvl  = float(signal.get("retest_level", entry_price))
+                sweep_flag  = signal.get("liquidity_sweep", 0)
 
                 logger.info(
                     f"Placing {'LONG' if direction == 1 else 'SHORT'} bracket "
                     f"x{contracts} | entry≈{entry_price:.2f} "
                     f"SL={sl_price:.2f} TP={tp_price:.2f}"
+                    f"{'  [SWEEP ✓]' if sweep_flag else ''}"
                 )
 
-                place_bracket_order(
-                    contracts = contracts,
+                _router.place_bracket_order(
+                    symbol    = "MES",
+                    qty       = contracts,
                     sl_price  = sl_price,
                     tp_price  = tp_price,
                     direction = direction,
@@ -272,14 +280,15 @@ def run_signal_check() -> None:
                 # Log trade to SQLite
                 try:
                     log_trade(
-                        direction   = "LONG" if direction == 1 else "SHORT",
-                        level_type  = level_type,
-                        entry_price = entry_price,
-                        stop_loss   = sl_price,
-                        take_profit = tp_price,
-                        contracts   = contracts,
-                        regime      = regime_info.get("regime"),
-                        vix         = fundamentals.get("vix"),
+                        direction        = "LONG" if direction == 1 else "SHORT",
+                        level_type       = level_type,
+                        entry_price      = entry_price,
+                        stop_loss        = sl_price,
+                        take_profit      = tp_price,
+                        contracts        = contracts,
+                        regime           = regime_info.get("regime"),
+                        vix              = fundamentals.get("vix"),
+                        liquidity_sweep  = int(sweep_flag),
                     )
                 except Exception as db_err:
                     logger.warning(f"Trade log write failed (non-fatal): {db_err}")
@@ -328,7 +337,7 @@ def run_eod_summary() -> None:
 
         # Cancel any unfilled orders left open (shouldn't happen with brackets,
         # but safety net in case of partial fills or manual interference).
-        cancel_all_mes_orders()
+        _router.cancel_all_orders("MES")
 
         equity = _safe_get_equity()
         if equity <= 0:

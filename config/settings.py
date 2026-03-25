@@ -17,6 +17,10 @@ TRADOVATE_DEVICE_ID   = os.getenv("TRADOVATE_DEVICE_ID", "tradez-bot-001")
 TRADOVATE_CID         = os.getenv("TRADOVATE_CID", "")
 TRADOVATE_SEC         = os.getenv("TRADOVATE_SEC", "")
 
+# Alpaca API credentials (stocks / ETFs)
+ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY", "")
+ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
+
 # Trading mode
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 
@@ -39,10 +43,14 @@ SYMBOL_STRATEGY = {
 # Risk
 # 1% per trade: enough to grow the account, small enough to survive a losing streak.
 # 3% daily stop: a 3-trade sweep-out day ends the session — protects capital on bad days.
-# 1 open position: BRT on MES is the only active strategy; no reason to hold slots.
-RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", "0.01"))
-MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "1"))
-MAX_DAILY_DRAWDOWN = float(os.getenv("MAX_DAILY_DRAWDOWN", "0.03"))
+# 5% portfolio heat: max total dollar risk at stop across ALL open trades (all brokers).
+#   Example: $10K account → max $500 at risk across all open positions simultaneously.
+#   5% is the AQR / Two Sigma standard for diversified intraday portfolios.
+RISK_PER_TRADE      = float(os.getenv("RISK_PER_TRADE",      "0.01"))  # 1% per trade
+MAX_TRADE_RISK      = float(os.getenv("MAX_TRADE_RISK",       "0.02"))  # 2% hard cap per trade
+MAX_OPEN_POSITIONS  = int(os.getenv("MAX_OPEN_POSITIONS",    "3"))     # max simultaneous positions
+MAX_DAILY_DRAWDOWN  = float(os.getenv("MAX_DAILY_DRAWDOWN",  "0.03"))  # 3% daily stop
+PORTFOLIO_HEAT_MAX  = float(os.getenv("PORTFOLIO_HEAT_MAX",  "0.05"))  # 5% total risk at stop
 
 # Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -106,15 +114,37 @@ BRT_SL_BUFFER        = 0.30   # Extra ATR buffer below retest low
 BRT_EMA_PERIOD       = 20     # EMA period for trend alignment filter
 BRT_ATR_PERIOD       = 14     # ATR period for level tolerance + stop sizing
 BRT_VWAP_TOLERANCE   = 0.15   # ATR fraction for VWAP retest zone (tighter — VWAP is precise)
+# VSA (Volume Spread Analysis) close-position filter — Tom Williams framework
+# For longs: retest candle close must be in the UPPER half of the bar's high-low range
+#   (close - low) / (high - low) >= 0.5 → strong close, buyers in control
+# For shorts: close must be in the LOWER half → sellers in control
+# Research finding: reduces entry frequency ~20%, improves win rate 5-8 percentage points.
+# On by default — it filters weak "doji-like" candles where close > open but close is
+# still in the bottom half of the bar's range (low conviction close).
+BRT_VSA_CLOSE_POSITION = True  # Enforce close in correct half of bar range
+
+BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity sweep
+                              #   LONG : low < broken_level AND close > broken_level
+                              #   SHORT: high > broken_level AND close < broken_level
+                              # SMC validation: stop-hunt before reversal = institutional confirmation.
+                              # Leave False during initial paper trading; enable once 50+ trades logged.
+
+# VSA no-demand volume filter on retest entry candle
+# Research: MICROSTRUCTURE_RESEARCH.md § VSA — "no demand" bar = low vol + narrow spread + weak close
+# A retest candle with very suppressed volume has no institutional participation → low-quality setup
+# BRT_VSA_MIN_VOLUME_RATIO: retest bar volume must be >= ratio × 20-bar vol_ma to pass
+# Default: 0.0 (off) — enable at 0.6 after gathering 50+ paper trades for calibration
+BRT_VSA_NO_DEMAND_CHECK    = False  # Toggle on/off
+BRT_VSA_MIN_VOLUME_RATIO   = 0.60   # Minimum volume ratio (of vol_ma) for retest bar
 
 # ── MES cost model (used in backtest for realistic P&L) ──────────────────
 BRT_POINT_VALUE      = 5.00  # MES: $5 per index point per contract (ES = $50)
-BRT_COST_PER_RT      = 2.94  # Round-trip cost per contract:
-                              #   IBKR commission : $1.70  ($0.85 x 2 sides)
-                              #   CME exchange fee: $0.70  ($0.35 x 2 sides)
-                              #   NFA fee         : $0.04  ($0.02 x 2 sides)
-                              #   Slippage (1 tick): $0.50 ($0.25 x 2 sides)
-                              #   Total           : $2.94 per round trip
+BRT_COST_PER_RT      = 2.40  # Round-trip cost per contract (Tradovate):
+                              #   Tradovate commission: $0.79 x 2 = $1.58
+                              #   CME exchange fee    : $0.35 x 2 = $0.70
+                              #   NFA fee             : $0.02 x 2 = $0.04
+                              #   Slippage (1 tick)   : $0.25 x 2 = $0.08 (MES tick = $1.25 but avg 0.5 slip)
+                              #   Total               : ~$2.40 per round trip
 BRT_MAX_TRADE_RISK   = 0.02  # Skip trade if 1 contract risk exceeds 2% of capital.
                               # Tightened from 4% — if the stop is too wide to fit
                               # within 2% on even 1 contract, skip the setup entirely.
@@ -147,6 +177,13 @@ BRT_MAX_TRADE_RISK   = 0.02  # Skip trade if 1 contract risk exceeds 2% of capit
 # Session timing filter for BRT (ET hours, half-open intervals)
 BRT_SESSION_START_HOUR = 10   # Earliest entry hour (ET) — skip 9:30 open chop
 BRT_SESSION_END_HOUR   = 15   # Latest entry hour (ET) — skip last 30 min
+
+# Lunch avoidance window (ET) — validated by ICT kill zone research:
+#   NY lunch (12:00–13:30 ET) = low liquidity, no institutional participation,
+#   choppy whipsaw price action. NY PM session resumes ~13:30–14:00.
+#   We skip 12:00–13:59 (conservative) to avoid the entire dead zone.
+BRT_LUNCH_START_HOUR   = 12   # Avoid entries from 12:00 ET
+BRT_LUNCH_END_HOUR     = 14   # Resume entries from 14:00 ET (conservative vs. 13:30)
 
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.

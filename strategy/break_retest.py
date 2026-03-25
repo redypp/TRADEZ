@@ -48,6 +48,8 @@ import pandas as pd
 import ta
 import logging
 from config import settings
+from strategy.volume_profile import add_session_vp
+from strategy.smc_levels import add_equal_highs_lows, add_fvg_levels
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +166,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
         long_only     : If True, only long setups are generated
         regime_params : Adaptive param overrides from RegimeEngine (None = use settings defaults)
 
-    Returns five numpy arrays: signals, stop_losses, take_profits, retest_levels, level_types
+    Returns six numpy arrays: signals, stop_losses, take_profits, retest_levels, level_types, sweep_flags
     """
     # ── Resolve parameters (regime overrides, else settings defaults) ─────
     p = regime_params or {}
@@ -181,6 +183,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
     take_profits = np.full(n, np.nan)
     retest_arr   = np.full(n, np.nan)
     level_types  = [""] * n
+    sweep_flags  = np.zeros(n, dtype=float)  # 1 = liquidity sweep confirmed at entry
 
     state         = "NEUTRAL"
     broken_level  = np.nan
@@ -196,7 +199,10 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
         except Exception:
             hour_et = settings.BRT_SESSION_START_HOUR  # default pass
 
-        in_session = settings.BRT_SESSION_START_HOUR <= hour_et < settings.BRT_SESSION_END_HOUR
+        in_session = (
+            settings.BRT_SESSION_START_HOUR <= hour_et < settings.BRT_SESSION_END_HOUR
+            and not (settings.BRT_LUNCH_START_HOUR <= hour_et < settings.BRT_LUNCH_END_HOUR)
+        )
 
         atr       = row["atr"]
         # VWAP uses tighter tolerance — it's a precise, actively defended level
@@ -234,14 +240,33 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                     #   3. EMA20 trend alignment
                     #   4. ADX shows active trend (>= adx_min from regime)
                     #   5. RSI in healthy range (not freefall, not overbought)
+                    #   6. Liquidity sweep (optional): wick below level, close above
+                    #      Confirms institutional stop hunt before the reversal.
                     candle_body   = row["close"] - row["open"]
                     bullish_body  = candle_body > 0
                     close_above   = row["close"] > broken_level
                     ema_ok        = row["close"] > row["ema20"]
                     adx_ok        = row["adx"] > adx_min
                     rsi_ok        = (settings.BRT_RSI_LONG_MIN < row["rsi"] < settings.BRT_RSI_LONG_MAX)
+                    # Sweep: wick dipped below the level, close recovered above it
+                    sweep_ok      = (not settings.BRT_REQUIRE_SWEEP or
+                                     (row["low"] < broken_level and row["close"] > broken_level))
+                    # VSA: close must be in the upper half of the bar's high-low range
+                    # (filters doji/weak candles that close near the bottom despite being "bullish")
+                    bar_range     = row["high"] - row["low"]
+                    vsa_close_ok  = (not settings.BRT_VSA_CLOSE_POSITION or
+                                     bar_range <= 0 or
+                                     (row["close"] - row["low"]) / bar_range >= 0.5)
+                    # VSA no-demand check: retest candle must not be a "no demand" bar
+                    # No demand = narrow spread + low volume + weak close → professionals absent
+                    # Research: MICROSTRUCTURE_RESEARCH.md § VSA detection thresholds
+                    retest_vol    = float(row["volume"]) if "volume" in df.columns else 0.0
+                    retest_vol_ma = float(row["vol_ma"]) if "vol_ma" in df.columns else 0.0
+                    vsa_vol_ok    = (not settings.BRT_VSA_NO_DEMAND_CHECK or
+                                     retest_vol_ma <= 0 or
+                                     retest_vol >= settings.BRT_VSA_MIN_VOLUME_RATIO * retest_vol_ma)
 
-                    if bullish_body and close_above and ema_ok and adx_ok and rsi_ok:
+                    if bullish_body and close_above and ema_ok and adx_ok and rsi_ok and sweep_ok and vsa_close_ok and vsa_vol_ok:
                         sl_candle = row["low"] - sl_buffer * atr
                         sl_level  = broken_level - sl_buffer * atr
                         sl        = min(sl_candle, sl_level)
@@ -252,6 +277,8 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                             take_profits[i] = round(row["close"] + tp_rr * risk, 2)
                             retest_arr[i]   = broken_level
                             level_types[i]  = broken_ltype
+                            # Record whether a sweep occurred (wick below level, close above)
+                            sweep_flags[i]  = 1.0 if (row["low"] < broken_level and row["close"] > broken_level) else 0.0
                             state         = "NEUTRAL"
                             broken_level  = np.nan
                             broken_ltype  = ""
@@ -276,8 +303,22 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                     ema_ok        = row["close"] < row["ema20"]
                     adx_ok        = row["adx"] > adx_min
                     rsi_ok        = (settings.BRT_RSI_SHORT_MIN < row["rsi"] < settings.BRT_RSI_SHORT_MAX)
+                    # Sweep: wick spiked above the level, close dropped back below it
+                    sweep_ok      = (not settings.BRT_REQUIRE_SWEEP or
+                                     (row["high"] > broken_level and row["close"] < broken_level))
+                    # VSA: close must be in the lower half of the bar's high-low range
+                    bar_range     = row["high"] - row["low"]
+                    vsa_close_ok  = (not settings.BRT_VSA_CLOSE_POSITION or
+                                     bar_range <= 0 or
+                                     (row["high"] - row["close"]) / bar_range >= 0.5)
+                    # VSA no-supply check: retest candle must not be a "no supply" bar
+                    retest_vol    = float(row["volume"]) if "volume" in df.columns else 0.0
+                    retest_vol_ma = float(row["vol_ma"]) if "vol_ma" in df.columns else 0.0
+                    vsa_vol_ok    = (not settings.BRT_VSA_NO_DEMAND_CHECK or
+                                     retest_vol_ma <= 0 or
+                                     retest_vol >= settings.BRT_VSA_MIN_VOLUME_RATIO * retest_vol_ma)
 
-                    if bearish_body and close_below and ema_ok and adx_ok and rsi_ok:
+                    if bearish_body and close_below and ema_ok and adx_ok and rsi_ok and sweep_ok and vsa_close_ok and vsa_vol_ok:
                         sl_candle = row["high"] + sl_buffer * atr
                         sl_level  = broken_level + sl_buffer * atr
                         sl        = max(sl_candle, sl_level)
@@ -288,6 +329,8 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                             take_profits[i] = round(row["close"] - tp_rr * risk, 2)
                             retest_arr[i]   = broken_level
                             level_types[i]  = broken_ltype
+                            # Record whether a sweep occurred (wick above level, close below)
+                            sweep_flags[i]  = 1.0 if (row["high"] > broken_level and row["close"] < broken_level) else 0.0
                             state         = "NEUTRAL"
                             broken_level  = np.nan
                             broken_ltype  = ""
@@ -326,6 +369,32 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
             if "orl" in df.columns and pd.notna(row.get("orl")) and not long_only:
                 levels.append(("ORL", float(row["orl"]), "short"))
 
+            # Prior-session Volume Profile levels (institutional fair value)
+            # POC = highest-volume price level; VAH/VAL = 70% value area boundaries
+            # Priority: after ORH/ORL, before swing — well-validated institutional S/R
+            if "prior_poc" in df.columns and pd.notna(row.get("prior_poc")):
+                levels.append(("VP_POC", float(row["prior_poc"]), "long"))
+                if not long_only:
+                    levels.append(("VP_POC", float(row["prior_poc"]), "short"))
+            if "prior_vah" in df.columns and pd.notna(row.get("prior_vah")):
+                levels.append(("VP_VAH", float(row["prior_vah"]), "long"))
+            if "prior_val" in df.columns and pd.notna(row.get("prior_val")) and not long_only:
+                levels.append(("VP_VAL", float(row["prior_val"]), "short"))
+
+            # Equal Highs/Lows — dense stop clusters (academically validated liquidity pools)
+            # Research: ResearchGate 2024 (EUR/USD PDH/PDL sweeps), Osler 2005 (stop cascades)
+            if "eqh" in df.columns and pd.notna(row.get("eqh")):
+                levels.append(("EQH", float(row["eqh"]), "short"))   # buy-side liquidity above
+            if "eql" in df.columns and pd.notna(row.get("eql")) and not long_only:
+                levels.append(("EQL", float(row["eql"]), "long"))    # sell-side liquidity below
+
+            # FVG levels — Fair Value Gap boundaries as S/R zones
+            # Research: >60% of FVGs NEVER fill (Edgeful); use as S/R, not fill targets
+            if "fvg_bull_low" in df.columns and pd.notna(row.get("fvg_bull_low")):
+                levels.append(("FVG", float(row["fvg_bull_low"]), "long"))
+            if "fvg_bear_high" in df.columns and pd.notna(row.get("fvg_bear_high")) and not long_only:
+                levels.append(("FVG", float(row["fvg_bear_high"]), "short"))
+
             # Swing levels (tertiary)
             if "swing_hi" in df.columns and pd.notna(row["swing_hi"]):
                 levels.append(("SWING", float(row["swing_hi"]), "long"))
@@ -352,7 +421,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                         break_bar_idx = i
                         break
 
-    return signals, stop_losses, take_profits, retest_arr, level_types
+    return signals, stop_losses, take_profits, retest_arr, level_types, sweep_flags
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -377,7 +446,8 @@ def prepare_break_retest(df: pd.DataFrame, long_only: bool = True,
         stop_loss     — Hard stop price
         take_profit   — Fixed R:R take profit price
         retest_level  — The level being retested at entry
-        level_type    — 'VWAP', 'PDH', 'PDL', or 'SWING'
+        level_type    — 'VWAP', 'PDH', 'PDL', 'ORH', 'ORL', 'VP_POC', 'VP_VAH', 'VP_VAL', 'SWING'
+        prior_poc / prior_vah / prior_val — Prior-session Volume Profile levels
 
     Args:
         df            : OHLCV DataFrame with DatetimeIndex
@@ -420,19 +490,53 @@ def prepare_break_retest(df: pd.DataFrame, long_only: bool = True,
     df["swing_hi"] = df["high"].shift(1).rolling(swing_n).max()
     df["swing_lo"] = df["low"].shift(1).rolling(swing_n).min()
 
+    # ── Prior-session Volume Profile levels (institutional S/R) ───────────
+    # Adds prior_poc, prior_vah, prior_val — no lookahead (uses previous session)
+    # Research: POC/VAH/VAL from prior session = highest-conviction intraday S/R.
+    # Inserted between ORH/ORL and SWING in the level priority order.
+    try:
+        df = add_session_vp(df)
+    except Exception as e:
+        logger.warning(f"Volume Profile calculation failed (non-fatal): {e}")
+        for col in ("prior_poc", "prior_vah", "prior_val"):
+            if col not in df.columns:
+                df[col] = np.nan
+
+    # ── Equal Highs/Lows (SMC liquidity pools) ───────────────────────────
+    # Research: Osler 2005 + ResearchGate 2024 — stop clusters at equal H/L
+    # produce statistically validated reversal tendencies after sweeps.
+    try:
+        df = add_equal_highs_lows(df)
+    except Exception as e:
+        logger.warning(f"EQH/EQL calculation failed (non-fatal): {e}")
+        for col in ("eqh", "eql"):
+            if col not in df.columns:
+                df[col] = np.nan
+
+    # ── Fair Value Gaps (FVG zones) ───────────────────────────────────────
+    # Research: >60% of FVGs never fill (Edgeful). Used as S/R zones only.
+    try:
+        df = add_fvg_levels(df)
+    except Exception as e:
+        logger.warning(f"FVG calculation failed (non-fatal): {e}")
+        for col in ("fvg_bull_low", "fvg_bull_high", "fvg_bear_low", "fvg_bear_high"):
+            if col not in df.columns:
+                df[col] = np.nan
+
     # ── Drop warmup rows ──────────────────────────────────────────────────
     df.dropna(subset=["ema20", "atr", "adx", "rsi"], inplace=True)
 
     # ── Break & Retest Signal Detection ──────────────────────────────────
-    signals, stop_losses, take_profits, retest_arr, level_types = _detect_brt_signals(
+    signals, stop_losses, take_profits, retest_arr, level_types, sweep_flags = _detect_brt_signals(
         df, long_only=long_only, regime_params=regime_params
     )
 
-    df["signal"]       = signals
-    df["stop_loss"]    = stop_losses
-    df["take_profit"]  = take_profits
-    df["retest_level"] = retest_arr
-    df["level_type"]   = level_types
+    df["signal"]           = signals
+    df["stop_loss"]        = stop_losses
+    df["take_profit"]      = take_profits
+    df["retest_level"]     = retest_arr
+    df["level_type"]       = level_types
+    df["liquidity_sweep"]  = sweep_flags  # 1 = sweep confirmed at entry bar
 
     n_long  = int((df["signal"] == 1).sum())
     n_short = int((df["signal"] == -1).sum())
@@ -451,19 +555,29 @@ def get_latest_brt_signal(df: pd.DataFrame) -> dict:
     """Return the most recent Break & Retest signal dict."""
     last = df.iloc[-1]
     return {
-        "signal":       int(last["signal"]),
-        "close":        float(last["close"]),
-        "ema20":        float(last["ema20"]),
-        "atr":          float(last["atr"]),
-        "adx":          float(last["adx"]),
-        "rsi":          float(last["rsi"]),
-        "vwap":         float(last["vwap"])    if pd.notna(last.get("vwap"))    else None,
-        "pdh":          float(last["pdh"])     if pd.notna(last.get("pdh"))     else None,
-        "pdl":          float(last["pdl"])     if pd.notna(last.get("pdl"))     else None,
-        "swing_hi":     float(last["swing_hi"]) if pd.notna(last.get("swing_hi")) else None,
-        "swing_lo":     float(last["swing_lo"]) if pd.notna(last.get("swing_lo")) else None,
-        "stop_loss":    float(last["stop_loss"])   if pd.notna(last["stop_loss"])   else None,
-        "take_profit":  float(last["take_profit"]) if pd.notna(last["take_profit"]) else None,
-        "retest_level": float(last["retest_level"]) if pd.notna(last["retest_level"]) else None,
-        "level_type":   str(last["level_type"]),
+        "signal":          int(last["signal"]),
+        "close":           float(last["close"]),
+        "ema20":           float(last["ema20"]),
+        "atr":             float(last["atr"]),
+        "adx":             float(last["adx"]),
+        "rsi":             float(last["rsi"]),
+        "vwap":            float(last["vwap"])    if pd.notna(last.get("vwap"))    else None,
+        "pdh":             float(last["pdh"])     if pd.notna(last.get("pdh"))     else None,
+        "pdl":             float(last["pdl"])     if pd.notna(last.get("pdl"))     else None,
+        "swing_hi":        float(last["swing_hi"]) if pd.notna(last.get("swing_hi")) else None,
+        "swing_lo":        float(last["swing_lo"]) if pd.notna(last.get("swing_lo")) else None,
+        "stop_loss":       float(last["stop_loss"])   if pd.notna(last["stop_loss"])   else None,
+        "take_profit":     float(last["take_profit"]) if pd.notna(last["take_profit"]) else None,
+        "retest_level":    float(last["retest_level"]) if pd.notna(last["retest_level"]) else None,
+        "level_type":      str(last["level_type"]),
+        "liquidity_sweep": int(last.get("liquidity_sweep", 0)),
+        "prior_poc":       float(last["prior_poc"]) if pd.notna(last.get("prior_poc")) else None,
+        "prior_vah":       float(last["prior_vah"]) if pd.notna(last.get("prior_vah")) else None,
+        "prior_val":       float(last["prior_val"]) if pd.notna(last.get("prior_val")) else None,
+        "eqh":             float(last["eqh"]) if pd.notna(last.get("eqh")) else None,
+        "eql":             float(last["eql"]) if pd.notna(last.get("eql")) else None,
+        "fvg_bull_low":    float(last["fvg_bull_low"])  if pd.notna(last.get("fvg_bull_low"))  else None,
+        "fvg_bull_high":   float(last["fvg_bull_high"]) if pd.notna(last.get("fvg_bull_high")) else None,
+        "fvg_bear_low":    float(last["fvg_bear_low"])  if pd.notna(last.get("fvg_bear_low"))  else None,
+        "fvg_bear_high":   float(last["fvg_bear_high"]) if pd.notna(last.get("fvg_bear_high")) else None,
     }

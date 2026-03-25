@@ -61,6 +61,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     const panel = $(`tab-${btn.dataset.tab}`);
     if (panel) panel.classList.add('active');
+    if (btn.dataset.tab === 'journal') renderJournal(window._lastTrades);
   });
 });
 
@@ -216,15 +217,22 @@ function renderState(s) {
 
   // Levels table
   const rows = [
-    { key:'vwap', label:'VWAP',    cls:'lt-vwap', icon:'V', val:s.vwap },
-    { key:'pdh',  label:'PDH',     cls:'lt-pdh',  icon:'H', val:s.pdh  },
-    { key:'pdl',  label:'PDL',     cls:'lt-pdl',  icon:'L', val:s.pdl  },
-    { key:'shi',  label:'Swing Hi',cls:'lt-shi',  icon:'↑', val:s.swing_hi },
-    { key:'slo',  label:'Swing Lo',cls:'lt-slo',  icon:'↓', val:s.swing_lo },
+    { key:'vwap',    label:'VWAP',    type:'Intraday',   cls:'lt-vwap', icon:'V', val:s.vwap },
+    { key:'pdh',     label:'PDH',     type:'Prev Day',   cls:'lt-pdh',  icon:'H', val:s.pdh  },
+    { key:'pdl',     label:'PDL',     type:'Prev Day',   cls:'lt-pdl',  icon:'L', val:s.pdl  },
+    { key:'poc',     label:'VP POC',  type:'Vol Profile',cls:'lt-vp',   icon:'P', val:s.prior_poc },
+    { key:'vah',     label:'VP VAH',  type:'Vol Profile',cls:'lt-vp',   icon:'↑', val:s.prior_vah },
+    { key:'val',     label:'VP VAL',  type:'Vol Profile',cls:'lt-vp',   icon:'↓', val:s.prior_val },
+    { key:'eqh',     label:'Eq. High',type:'SMC Liq.',   cls:'lt-eqh',  icon:'⚡', val:s.eqh },
+    { key:'eql',     label:'Eq. Low', type:'SMC Liq.',   cls:'lt-eql',  icon:'⚡', val:s.eql },
+    { key:'fvgb',    label:'FVG Bull',type:'FVG Zone',   cls:'lt-fvg',  icon:'▲', val:s.fvg_bull_low },
+    { key:'fvgs',    label:'FVG Bear',type:'FVG Zone',   cls:'lt-fvg',  icon:'▼', val:s.fvg_bear_high },
+    { key:'shi',     label:'Swing Hi',type:'Swing',      cls:'lt-shi',  icon:'↑', val:s.swing_hi },
+    { key:'slo',     label:'Swing Lo',type:'Swing',      cls:'lt-slo',  icon:'↓', val:s.swing_lo },
   ];
   const tbody = $('levels-tbody');
   if (tbody) {
-    tbody.innerHTML = rows.map(r => {
+    tbody.innerHTML = rows.filter(r => r.val != null).map(r => {
       const diff = r.val && price ? r.val - price : null;
       const distCls = diff == null ? '' : diff >= 0 ? 'style="color:var(--green)"' : 'style="color:var(--red)"';
       const distTxt = diff == null ? '—' : (diff >= 0 ? '+' : '') + f(diff, 1);
@@ -235,11 +243,12 @@ function renderState(s) {
       return `<tr ${rowStyle}>
         <td><span class="lt-icon ${r.cls}">${r.icon}</span></td>
         <td class="lt-name">${r.label}</td>
+        <td class="lt-type" style="color:var(--text3);font-size:10px">${r.type}</td>
         <td class="mono" style="font-size:12px;font-weight:600">${fp(r.val)}</td>
         <td><div class="lbar-wrap"><div class="lbar" style="width:${pct}%;background:${barClr}"></div></div></td>
         <td ${distCls} style="font-family:var(--mono);font-size:11px;text-align:right">${distTxt}</td>
       </tr>`;
-    }).join('');
+    }).join('') || '<tr><td colspan="6" class="empty-cell">Awaiting data</td></tr>';
   }
 }
 
@@ -265,6 +274,15 @@ function renderRegime(regime, state) {
     setText('rc-vix',   state.vix       != null ? f(state.vix, 1)          : '—');
     setText('rc-yield', state.yield_10y != null ? f(state.yield_10y, 3)+'%': '—');
     setText('rc-dxy',   state.dxy       != null ? f(state.dxy, 2)          : '—');
+    // VPOC migration indicator
+    const vm = state.vpoc_migration || 'NEUTRAL';
+    const vmEl = $('vpoc-migration');
+    if (vmEl) {
+      const arrow = vm === 'RISING' ? '↑' : vm === 'FALLING' ? '↓' : '→';
+      const col   = vm === 'RISING' ? 'var(--green)' : vm === 'FALLING' ? 'var(--red)' : 'var(--text3)';
+      vmEl.textContent = `VPOC ${arrow}`;
+      vmEl.style.color = col;
+    }
   }
 
   // Highlight active regime card in Strategies tab
@@ -282,8 +300,160 @@ function renderRegime(regime, state) {
   }
 }
 
+// ── Render: Entry Filters ─────────────────────────────────────────────────────
+function renderFilters(s, settings) {
+  const row = $('filters-row'); if (!row) return;
+  if (!s) return;
+
+  const etNow = new Date(new Date().toLocaleString('en-US', { timeZone:'America/New_York' }));
+  const h = etNow.getHours();
+  const lunchStart = settings?.brt_lunch_start ?? 12;
+  const lunchEnd   = settings?.brt_lunch_end   ?? 14;
+  const sessStart  = settings?.brt_session_start ?? 10;
+  const sessEnd    = settings?.brt_session_end   ?? 15;
+
+  const inLunch   = h >= lunchStart && h < lunchEnd;
+  const inSession = h >= sessStart && h < sessEnd && !inLunch;
+  const sessLabel = inLunch ? `LUNCH (${lunchStart}–${lunchEnd} ET)`
+                  : inSession ? `OPEN (${sessStart}–${sessEnd} ET)`
+                  : `CLOSED`;
+  const sessOk = inSession;
+
+  const adxMin = s.adx_min ?? settings?.brt_adx_min ?? 20;
+  const adxOk  = (s.adx ?? 0) >= adxMin;
+  const rsiOk  = s.rsi > (settings?.brt_rsi_long_min ?? 35) && s.rsi < (settings?.brt_rsi_long_max ?? 75);
+  const emaOk  = s.close != null && s.ema20 != null && s.close > s.ema20;
+
+  const filters = [
+    { label:'Session',     val: sessLabel,                        ok: sessOk,   warn: inLunch },
+    { label:'Regime',      val: (s.regime||'?') + (s.can_trade===false?' · BLOCKED':' · OK'), ok: s.can_trade !== false, warn: false },
+    { label:'ADX',         val: `${f(s.adx,1)} (≥${adxMin})`,    ok: adxOk,    warn: false },
+    { label:'RSI',         val: `${f(s.rsi,1)} (${settings?.brt_rsi_long_min??35}–${settings?.brt_rsi_long_max??75})`, ok: rsiOk, warn: !rsiOk },
+    { label:'EMA Trend',   val: emaOk ? `+${f(s.close-s.ema20,1)} above` : s.close && s.ema20 ? `${f(s.close-s.ema20,1)} below` : '—', ok: emaOk, warn: false },
+    { label:'VSA Filter',  val: settings?.brt_vsa_close ? 'ACTIVE' : 'OFF',    ok: true,     warn: !settings?.brt_vsa_close },
+    { label:'Sweep Req',   val: settings?.brt_require_sweep ? 'REQUIRED' : 'OPTIONAL', ok: true, warn: settings?.brt_require_sweep },
+  ];
+
+  const passCount = filters.filter(f => f.ok && !f.warn).length;
+  const pc = $('filter-pass-count');
+  if (pc) { pc.textContent = `${passCount}/${filters.length} passing`; pc.style.color = passCount >= 5 ? 'var(--green)' : 'var(--amber)'; }
+
+  row.innerHTML = filters.map(fil => {
+    const cls = fil.warn ? 'warn' : fil.ok ? 'pass' : 'fail';
+    const dot = fil.warn ? '⚠' : fil.ok ? '✓' : '✗';
+    return `<div class="filter-chip ${cls}">
+      <span class="fc-dot">${dot}</span>
+      <div class="fc-body">
+        <span class="fc-name">${fil.label}</span>
+        <span class="fc-val">${fil.val}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Render: Journal ───────────────────────────────────────────────────────────
+function renderJournal(trades) {
+  if (!$('tab-journal')?.classList.contains('active')) return; // only render if visible
+
+  const cards = $('journal-cards'); if (!cards) return;
+  if (!trades?.length) {
+    cards.innerHTML = '<div class="journal-empty">No trades recorded yet.</div>';
+    return;
+  }
+
+  // Stats
+  const closed = trades.filter(t => t.pnl != null);
+  const wins   = closed.filter(t => t.pnl > 0);
+  const losses = closed.filter(t => t.pnl <= 0);
+  const sweepWins   = closed.filter(t => t.liquidity_sweep && t.pnl > 0);
+  const sweepClosed = closed.filter(t => t.liquidity_sweep);
+  const totalPnl    = closed.reduce((a, t) => a + (t.pnl || 0), 0);
+  const avgWin  = wins.length   ? wins.reduce((a,t)=>a+t.pnl,0)/wins.length     : null;
+  const avgLoss = losses.length ? losses.reduce((a,t)=>a+t.pnl,0)/losses.length : null;
+
+  setText('jst-total',    trades.length);
+  const wrEl = $('jst-wr');
+  if (wrEl) {
+    const wr = closed.length ? Math.round(wins.length/closed.length*100) : 0;
+    wrEl.textContent = closed.length ? wr + '%' : '—';
+    wrEl.style.color = wr >= 50 ? 'var(--green)' : wr >= 40 ? 'var(--amber)' : 'var(--red)';
+  }
+  const pnlEl = $('jst-pnl');
+  if (pnlEl) { pnlEl.textContent = fmtPnl(totalPnl); pnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)'; }
+  const swEl = $('jst-sweep-wr');
+  if (swEl) swEl.textContent = sweepClosed.length ? Math.round(sweepWins.length/sweepClosed.length*100) + '%' : '—';
+  const awEl = $('jst-avg-win');
+  if (awEl) { awEl.textContent = avgWin != null ? fmtPnl(avgWin) : '—'; awEl.style.color = 'var(--green)'; }
+  const alEl = $('jst-avg-loss');
+  if (alEl) { alEl.textContent = avgLoss != null ? fmtPnl(avgLoss) : '—'; alEl.style.color = 'var(--red)'; }
+
+  // Trade cards
+  cards.innerHTML = trades.map(t => {
+    const isOpen  = t.pnl == null;
+    const isWin   = !isOpen && t.pnl > 0;
+    const isLoss  = !isOpen && t.pnl <= 0;
+    const cardCls = isOpen ? 'open' : isWin ? 'win' : 'loss';
+    const pnlTxt  = isOpen ? '<span class="jc-open">OPEN</span>' : `<span class="jc-pnl ${isWin?'pos':'neg'}">${fmtPnl(t.pnl)}</span>`;
+    const outcome = isOpen ? 'OPEN' : t.exit_reason || (isWin ? 'TP' : 'SL');
+
+    // Confluence checks (infer from stored data)
+    const checks = [];
+    if (t.level_type) checks.push({ ok: true, text: `Level: ${t.level_type}` });
+    if (t.regime)     checks.push({ ok: true, text: `Regime: ${t.regime}` });
+    if (t.vix != null) checks.push({ ok: t.vix < 30, warn: t.vix >= 20, text: `VIX: ${f(t.vix,1)}` });
+    if (t.liquidity_sweep) checks.push({ ok: true, sweep: true, text: 'Liquidity sweep ✓' });
+
+    const checkHtml = checks.map(c =>
+      `<span class="jcc-item ${c.sweep?'sweep':c.warn?'warn':c.ok?'pass':'fail'}">${c.text}</span>`
+    ).join('');
+
+    // Failure analysis for losses
+    let failHtml = '';
+    if (isLoss) {
+      const reasons = [];
+      if (t.level_type === 'SWING') reasons.push('Swing level — lower institutional significance than VWAP/PDH');
+      if (t.vix != null && t.vix >= 20) reasons.push(`Elevated VIX (${f(t.vix,1)}) — wider noise, reduced setup quality`);
+      if (!t.liquidity_sweep) reasons.push('No liquidity sweep at entry — stop hunt not confirmed');
+      if (reasons.length === 0) reasons.push('Market moved against setup — within normal loss distribution');
+      failHtml = `<div class="jc-failure">
+        <span class="jcf-label">Analysis:</span>
+        ${reasons.map(r => `<span class="jcf-item">• ${r}</span>`).join('')}
+      </div>`;
+    }
+
+    const rr = t.entry_price && t.stop_loss && t.take_profit
+      ? ((t.take_profit - t.entry_price) / (t.entry_price - t.stop_loss)).toFixed(1) + 'R'
+      : '—';
+
+    return `<div class="journal-card ${cardCls}">
+      <div class="jc-header">
+        <div class="jc-left">
+          <span class="jc-dir ${t.direction==='LONG'?'long':'short'}">${t.direction||'?'}</span>
+          <span class="jc-level">${t.level_type||'—'}</span>
+          <span class="jc-time">${shortTs(t.timestamp)}</span>
+        </div>
+        <div class="jc-right">
+          <span class="jc-outcome ${isOpen?'open':isWin?'win':'loss'}">${outcome}</span>
+          ${pnlTxt}
+        </div>
+      </div>
+      <div class="jc-prices">
+        <div class="jcp-item"><span class="jcp-lbl">Entry</span><span class="jcp-val mono">${fp(t.entry_price)}</span></div>
+        <div class="jcp-item"><span class="jcp-lbl">Stop</span><span class="jcp-val mono red">${fp(t.stop_loss)}</span></div>
+        <div class="jcp-item"><span class="jcp-lbl">Target</span><span class="jcp-val mono green">${fp(t.take_profit)}</span></div>
+        <div class="jcp-item"><span class="jcp-lbl">Exit</span><span class="jcp-val mono">${fp(t.exit_price)}</span></div>
+        <div class="jcp-item"><span class="jcp-lbl">R:R</span><span class="jcp-val mono">${rr}</span></div>
+        <div class="jcp-item"><span class="jcp-lbl">Size</span><span class="jcp-val mono">${t.contracts||1}×</span></div>
+      </div>
+      <div class="jc-tags">${checkHtml}</div>
+      ${failHtml}
+    </div>`;
+  }).join('');
+}
+
 // ── Render: Trades ────────────────────────────────────────────────────────────
 function renderTrades(trades, summary) {
+  window._lastTrades = trades;
   if (summary) {
     setText('ps-wins',   `${summary.wins   ?? 0}W`);
     setText('ps-losses', `${summary.losses ?? 0}L`);
@@ -293,13 +463,14 @@ function renderTrades(trades, summary) {
   if (tc && trades) tc.textContent = trades.length + ' records';
   const tbody = $('trades-tbody'); if (!tbody) return;
   if (!trades?.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">No trades recorded yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-cell">No trades recorded yet</td></tr>';
     return;
   }
   tbody.innerHTML = trades.map(t => {
     const hasPnl = t.pnl != null;
     const pCls   = !hasPnl ? 'pnl-open' : t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
     const pTxt   = !hasPnl ? 'open' : fmtPnl(t.pnl);
+    const sweepBadge = t.liquidity_sweep ? '<span class="sweep-badge">SWEEP</span>' : '—';
     return `<tr>
       <td>${shortTs(t.timestamp)}</td>
       <td class="${t.direction==='LONG'?'dir-long':'dir-short'}">${t.direction||'—'}</td>
@@ -312,6 +483,7 @@ function renderTrades(trades, summary) {
       <td class="${pCls}">${pTxt}</td>
       <td style="color:var(--text3)">${t.regime||'—'}</td>
       <td style="color:var(--text3)">${t.vix!=null?f(t.vix,1):'—'}</td>
+      <td>${sweepBadge}</td>
     </tr>`;
   }).join('');
 }
@@ -347,9 +519,11 @@ function render(data) {
   if (!data) return;
   renderState(data.state);
   renderRegime(data.regime, data.state);
+  renderFilters(data.state, data.settings);
   renderTrades(data.trades, data.summary);
   renderFeed(data.events);
   updateChart(data.equity);
+  renderJournal(data.trades);
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -375,6 +549,201 @@ async function pollRest() {
     render(await res.json());
     setConn('polling');
   } catch { setConn('dead'); }
+}
+
+// ── Strategy Lab ──────────────────────────────────────────────────────────────
+
+let labEquityChart = null;
+
+// Instrument options per strategy
+const LAB_INSTRUMENTS = {
+  BRT:      ['MES', 'ES'],
+  ORB:      ['MES', 'ES', 'SPY', 'QQQ'],
+  DONCHIAN: ['MGC', 'GC', 'SIL'],
+  RSI2:     ['SPY', 'QQQ', 'IWM', 'GLD'],
+  VWAP_MR:  ['MES', 'ES'],
+};
+
+// Update instrument options when strategy changes
+$('lab-strategy') && $('lab-strategy').addEventListener('change', () => {
+  const strat    = $('lab-strategy').value;
+  const symSel   = $('lab-symbol');
+  const options  = LAB_INSTRUMENTS[strat] || [];
+  symSel.innerHTML = options.map(s => `<option value="${s}">${s}</option>`).join('');
+});
+
+$('lab-run-btn') && $('lab-run-btn').addEventListener('click', async () => {
+  const strategy  = $('lab-strategy').value;
+  const symbol    = $('lab-symbol').value;
+  const capital   = parseFloat($('lab-capital').value) || 10000;
+  const runMC     = $('lab-mc').checked;
+
+  // Show loading, hide old results
+  $('lab-results').style.display = 'none';
+  $('lab-warning').style.display = 'none';
+  $('lab-loading').style.display = 'flex';
+  $('lab-run-btn').disabled = true;
+
+  try {
+    const res = await fetch('/api/lab/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        strategy, symbol,
+        initial_capital: capital,
+        run_monte_carlo: runMC,
+        n_mc_sims: 2000,
+      }),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      $('lab-warning').textContent = '⚠ ' + data.error;
+      $('lab-warning').style.display = 'block';
+      return;
+    }
+
+    labRenderResults(data);
+
+  } catch (err) {
+    $('lab-warning').textContent = '⚠ Request failed: ' + err.message;
+    $('lab-warning').style.display = 'block';
+  } finally {
+    $('lab-loading').style.display = 'none';
+    $('lab-run-btn').disabled = false;
+  }
+});
+
+function labRenderResults(data) {
+  const m = data.metrics || {};
+  const mc = data.monte_carlo;
+
+  // Warning
+  if (data.warning) {
+    $('lab-warning').textContent = '⚠ ' + data.warning;
+    $('lab-warning').style.display = 'block';
+  }
+
+  // Metrics
+  setText('lm-trades',  data.n_trades);
+  setText('lm-trades-sub', `${data.timeframe} · ${data.data_bars} bars`);
+
+  const wr = m.win_rate;
+  setText('lm-wr', wr != null ? wr.toFixed(1) + '%' : '—');
+  $('lm-wr').className = 'lmc-value ' + (wr >= 50 ? 'val-green' : wr >= 40 ? 'val-yellow' : 'val-red');
+
+  const pf = m.profit_factor;
+  setText('lm-pf', pf != null ? pf.toFixed(2) : '—');
+  $('lm-pf').className = 'lmc-value ' + (pf >= 2 ? 'val-green' : pf >= 1.3 ? 'val-yellow' : 'val-red');
+
+  const sh = m.sharpe_ratio;
+  setText('lm-sharpe', sh != null ? sh.toFixed(2) : '—');
+  $('lm-sharpe').className = 'lmc-value ' + (sh >= 1.5 ? 'val-green' : sh >= 0.8 ? 'val-yellow' : 'val-red');
+
+  const ret = m.total_return_pct;
+  setText('lm-ret', ret != null ? (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%' : '—');
+  $('lm-ret').className = 'lmc-value ' + (ret >= 0 ? 'val-green' : 'val-red');
+
+  const dd = m.max_drawdown_pct;
+  setText('lm-dd', dd != null ? dd.toFixed(1) + '%' : '—');
+  $('lm-dd').className = 'lmc-value ' + (dd > -10 ? 'val-green' : dd > -20 ? 'val-yellow' : 'val-red');
+
+  // Equity curve
+  labRenderEquityChart(data.equity, data.initial_capital || 10000);
+
+  // Monte Carlo
+  if (mc && !mc.error && $('lab-mc-section')) {
+    $('lab-mc-section').style.display = 'block';
+    setText('mc-ruin',    (mc.ruin_probability * 100).toFixed(1) + '%');
+    $('mc-ruin').className = 'lmc2-value ' + (mc.ruin_probability < 0.05 ? 'val-green' : 'val-red');
+
+    setText('mc-profit',  (mc.prob_profit * 100).toFixed(1) + '%');
+    $('mc-profit').className = 'lmc2-value ' + (mc.prob_profit > 0.70 ? 'val-green' : 'val-yellow');
+
+    setText('mc-median',  '$' + mc.median_final_equity.toLocaleString('en-US', {maximumFractionDigits:0}));
+    setText('mc-p05',     '$' + mc.p05_final_equity.toLocaleString('en-US', {maximumFractionDigits:0}));
+    $('mc-p05').className = 'lmc2-value ' + (mc.p05_final_equity > (data.metrics?.initial_capital || 10000) ? 'val-green' : 'val-red');
+
+    setText('mc-med-dd',  (mc.median_max_dd * 100).toFixed(1) + '%');
+    setText('mc-p95-dd',  (mc.p95_max_dd * 100).toFixed(1) + '%');
+    $('mc-p95-dd').className = 'lmc2-value ' + (mc.p95_max_dd < 0.40 ? 'val-green' : 'val-red');
+
+    const verdict = $('mc-verdict');
+    if (mc.passes_all_gates) {
+      verdict.textContent = '✓ PASSES all Monte Carlo gates — strategy is statistically robust';
+      verdict.className = 'mc-verdict verdict-pass';
+    } else {
+      verdict.textContent = '✗ FAILS Monte Carlo gates — do NOT trade live with these parameters';
+      verdict.className = 'mc-verdict verdict-fail';
+    }
+  } else if (mc && mc.error) {
+    $('lab-mc-section') && ($('lab-mc-section').style.display = 'none');
+  }
+
+  // Trade table
+  const tbody = $('lab-trade-tbody');
+  if (tbody) {
+    tbody.innerHTML = '';
+    (data.trades || []).slice(-50).reverse().forEach(t => {
+      const pnl = t.pnl;
+      const cls = pnl > 0 ? 'tr-win' : 'tr-loss';
+      tbody.insertAdjacentHTML('beforeend', `
+        <tr class="${cls}">
+          <td>${shortTs(t.entry_time)}</td>
+          <td>${shortTs(t.exit_time)}</td>
+          <td class="${t.direction === 'LONG' ? 'dir-long' : 'dir-short'}">${t.direction}</td>
+          <td>${t.entry.toFixed(2)}</td>
+          <td>${t.exit.toFixed(2)}</td>
+          <td>${fmtPnl(pnl)}</td>
+          <td class="${t.result === 'TP' ? 'res-tp' : 'res-sl'}">${t.result}</td>
+        </tr>`);
+    });
+    setText('lab-trade-count', `(last ${Math.min(50, (data.trades||[]).length)} of ${data.n_trades})`);
+  }
+
+  $('lab-results').style.display = 'block';
+}
+
+function labRenderEquityChart(points, initialCapital) {
+  const ctx = $('lab-equity-chart');
+  if (!ctx) return;
+
+  if (labEquityChart) { labEquityChart.destroy(); labEquityChart = null; }
+
+  const labels = points.map(p => p.i);
+  const values = points.map(p => p.equity);
+  const color  = values[values.length - 1] >= initialCapital ? '#22C55E' : '#EF4444';
+
+  labEquityChart = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: color,
+        backgroundColor: color + '18',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.2,
+      }],
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          ticks: {
+            color: '#9CA3AF',
+            callback: v => '$' + v.toLocaleString('en-US', {maximumFractionDigits:0}),
+          },
+          grid: { color: '#1F2937' },
+        },
+      },
+    },
+  });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

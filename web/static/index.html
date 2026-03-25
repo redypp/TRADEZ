@@ -25,6 +25,8 @@
     </button>
     <button class="tab-btn" data-tab="strategies">Strategies</button>
     <button class="tab-btn" data-tab="methods">Methods</button>
+    <button class="tab-btn" data-tab="lab">Lab</button>
+    <button class="tab-btn" data-tab="journal">Journal</button>
   </nav>
 
   <div class="tb-right">
@@ -51,6 +53,7 @@
         <div class="rb-chip"><span class="rc-lbl">VIX</span><span id="rc-vix" class="rc-val">—</span></div>
         <div class="rb-chip"><span class="rc-lbl">10Y</span><span id="rc-yield" class="rc-val">—</span></div>
         <div class="rb-chip"><span class="rc-lbl">DXY</span><span id="rc-dxy" class="rc-val">—</span></div>
+        <div class="rb-chip"><span id="vpoc-migration" class="rc-val" style="color:var(--text3)">VPOC →</span></div>
       </div>
       <span id="rb-badge" class="rb-badge">—</span>
     </div>
@@ -141,6 +144,12 @@
 
   </div><!-- /live-grid -->
 
+  <!-- Active Filters Panel -->
+  <div class="card filters-card">
+    <div class="card-head">ACTIVE ENTRY FILTERS <span id="filter-pass-count" class="filter-summary"></span></div>
+    <div id="filters-row" class="filters-row"></div>
+  </div>
+
   <!-- Levels + Chart + Feed -->
   <div class="live-lower">
 
@@ -148,7 +157,7 @@
       <div class="card-head">KEY LEVELS</div>
       <table class="levels-table">
         <thead>
-          <tr><th>Level</th><th>Price</th><th></th><th>Dist</th></tr>
+          <tr><th>Level</th><th>Type</th><th>Price</th><th></th><th>Dist</th></tr>
         </thead>
         <tbody id="levels-tbody">
           <tr><td colspan="4" class="empty-cell">Awaiting data</td></tr>
@@ -179,11 +188,11 @@
           <tr>
             <th>Time</th><th>Dir</th><th>Level</th><th>Entry</th>
             <th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th>
-            <th>P&amp;L</th><th>Regime</th><th>VIX</th>
+            <th>P&amp;L</th><th>Regime</th><th>VIX</th><th>Sweep</th>
           </tr>
         </thead>
         <tbody id="trades-tbody">
-          <tr><td colspan="11" class="empty-cell">No trades recorded yet</td></tr>
+          <tr><td colspan="12" class="empty-cell">No trades recorded yet</td></tr>
         </tbody>
       </table>
     </div>
@@ -550,6 +559,174 @@
 
   </div><!-- /methods-grid -->
 </div><!-- /tab-methods -->
+
+<!-- ══════════════════════════════════════ TAB: LAB -->
+<div id="tab-lab" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Strategy Lab</h1>
+    <p class="page-sub">Run a full backtest + Monte Carlo validation on any strategy before going live. Minimum 100 trades for statistical confidence.</p>
+  </div>
+
+  <!-- Controls -->
+  <div class="card lab-controls">
+    <div class="lab-row">
+      <div class="lab-field">
+        <label class="lab-label">Strategy</label>
+        <select id="lab-strategy" class="lab-select">
+          <option value="BRT">Break &amp; Retest (BRT)</option>
+          <option value="ORB">Opening Range Breakout (ORB)</option>
+          <option value="DONCHIAN">Donchian Breakout (Turtle)</option>
+          <option value="RSI2">RSI(2) Daily</option>
+          <option value="VWAP_MR">VWAP Mean Reversion</option>
+        </select>
+      </div>
+      <div class="lab-field">
+        <label class="lab-label">Instrument</label>
+        <select id="lab-symbol" class="lab-select">
+          <option value="MES">MES (Micro E-mini S&amp;P)</option>
+          <option value="MGC">MGC (Micro Gold)</option>
+          <option value="SPY">SPY (S&amp;P 500 ETF)</option>
+          <option value="QQQ">QQQ (Nasdaq ETF)</option>
+          <option value="GC">GC (Gold Futures)</option>
+          <option value="SIL">SIL (Silver Futures)</option>
+        </select>
+      </div>
+      <div class="lab-field">
+        <label class="lab-label">Capital ($)</label>
+        <input id="lab-capital" class="lab-input" type="number" value="10000" min="1000" step="1000"/>
+      </div>
+      <div class="lab-field lab-field-check">
+        <label class="lab-label">Monte Carlo</label>
+        <label class="lab-toggle">
+          <input type="checkbox" id="lab-mc" checked/>
+          <span class="lab-toggle-slider"></span>
+        </label>
+      </div>
+      <button id="lab-run-btn" class="lab-run-btn">▶ Run Backtest</button>
+    </div>
+  </div>
+
+  <!-- Warning banner (hidden by default) -->
+  <div id="lab-warning" class="lab-warning" style="display:none"></div>
+
+  <!-- Loading state -->
+  <div id="lab-loading" class="lab-loading" style="display:none">
+    <div class="lab-spinner"></div>
+    <span>Running backtest…</span>
+  </div>
+
+  <!-- Results (hidden until run) -->
+  <div id="lab-results" style="display:none">
+
+    <!-- Key metrics row -->
+    <div class="lab-metrics-grid">
+      <div class="lab-metric-card">
+        <div class="lmc-label">Total Trades</div>
+        <div class="lmc-value" id="lm-trades">—</div>
+        <div class="lmc-sub" id="lm-trades-sub"></div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Win Rate</div>
+        <div class="lmc-value" id="lm-wr">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Profit Factor</div>
+        <div class="lmc-value" id="lm-pf">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Sharpe Ratio</div>
+        <div class="lmc-value" id="lm-sharpe">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Total Return</div>
+        <div class="lmc-value" id="lm-ret">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Max Drawdown</div>
+        <div class="lmc-value" id="lm-dd">—</div>
+      </div>
+    </div>
+
+    <!-- Equity curve chart -->
+    <div class="card lab-chart-card">
+      <div class="card-head">EQUITY CURVE</div>
+      <canvas id="lab-equity-chart" height="80"></canvas>
+    </div>
+
+    <!-- Monte Carlo results -->
+    <div id="lab-mc-section" class="card lab-mc-card" style="display:none">
+      <div class="card-head">MONTE CARLO — Bootstrap (2,000 paths)</div>
+      <div class="lab-mc-grid">
+        <div class="lmc2">
+          <div class="lmc2-label">Ruin Probability</div>
+          <div class="lmc2-value" id="mc-ruin">—</div>
+          <div class="lmc2-sub">DD &gt; 25% — must be &lt;5%</div>
+        </div>
+        <div class="lmc2">
+          <div class="lmc2-label">Prob of Profit</div>
+          <div class="lmc2-value" id="mc-profit">—</div>
+          <div class="lmc2-sub">Fraction of paths ending above start</div>
+        </div>
+        <div class="lmc2">
+          <div class="lmc2-label">Median Final Equity</div>
+          <div class="lmc2-value" id="mc-median">—</div>
+        </div>
+        <div class="lmc2">
+          <div class="lmc2-label">P05 Equity (worst 5%)</div>
+          <div class="lmc2-value" id="mc-p05">—</div>
+        </div>
+        <div class="lmc2">
+          <div class="lmc2-label">Median Max Drawdown</div>
+          <div class="lmc2-value" id="mc-med-dd">—</div>
+        </div>
+        <div class="lmc2">
+          <div class="lmc2-label">P95 Max DD (tail risk)</div>
+          <div class="lmc2-value" id="mc-p95-dd">—</div>
+          <div class="lmc2-sub">Must be &lt;40%</div>
+        </div>
+      </div>
+      <div id="mc-verdict" class="mc-verdict"></div>
+    </div>
+
+    <!-- Trade table -->
+    <div class="card lab-trades-card">
+      <div class="card-head">TRADE LOG <span id="lab-trade-count" class="card-head-sub"></span></div>
+      <div class="lab-table-wrap">
+        <table class="lab-table">
+          <thead>
+            <tr>
+              <th>Entry</th><th>Exit</th><th>Dir</th>
+              <th>Entry $</th><th>Exit $</th><th>P&amp;L</th><th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="lab-trade-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /lab-results -->
+</div><!-- /tab-lab -->
+
+<!-- ══════════════════════════════════════ TAB: JOURNAL -->
+<div id="tab-journal" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Trade Journal</h1>
+    <p class="page-sub">Complete record of every trade — entry logic, confluence checks, and failure analysis. All timestamps UTC.</p>
+  </div>
+
+  <div class="journal-stats" id="journal-stats">
+    <div class="js-card"><div class="js-label">Total Trades</div><div class="js-val" id="jst-total">—</div></div>
+    <div class="js-card"><div class="js-label">Win Rate</div><div class="js-val" id="jst-wr">—</div></div>
+    <div class="js-card"><div class="js-label">Total P&amp;L</div><div class="js-val" id="jst-pnl">—</div></div>
+    <div class="js-card"><div class="js-label">Sweep Win Rate</div><div class="js-val" id="jst-sweep-wr">—</div></div>
+    <div class="js-card"><div class="js-label">Avg Win</div><div class="js-val" id="jst-avg-win">—</div></div>
+    <div class="js-card"><div class="js-label">Avg Loss</div><div class="js-val" id="jst-avg-loss">—</div></div>
+  </div>
+
+  <div id="journal-cards" class="journal-cards">
+    <div class="journal-empty">No trades recorded yet. Trades appear here after the scheduler runs.</div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>
