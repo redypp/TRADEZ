@@ -41,6 +41,7 @@ from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
 from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
 from strategy.orb import get_orb_signal_15min
+from strategy.llm_selector import get_llm_strategy_selection
 from risk.manager import RiskBlock, check_all, check_daily_drawdown
 from execution.router import router as _router
 from monitor.alerts import (
@@ -239,6 +240,78 @@ def run_signal_check() -> None:
 
         # ── Telegram hourly summary (smart — only fires if noteworthy) ────
         notify_signal_check(signal, fundamentals)
+
+        # ── LLM Strategy Selection (overrides rule-based routing if enabled) ─
+        if settings.LLM_SELECTOR_ENABLED:
+            try:
+                llm_rec = get_llm_strategy_selection({
+                    "close":         brt_signal.get("close"),
+                    "ema20":         brt_signal.get("ema20"),
+                    "vwap":          brt_signal.get("vwap"),
+                    "adx":           brt_signal.get("adx"),
+                    "rsi":           brt_signal.get("rsi"),
+                    "atr":           brt_signal.get("atr"),
+                    "vix":           fundamentals.get("vix"),
+                    "yield_10y":     fundamentals.get("yield_10y"),
+                    "dxy":           fundamentals.get("dxy"),
+                    "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
+                    "regime":        regime_info["regime"],
+                    "vpoc_migration": vpoc_migration,
+                    "brt_signal":    brt_signal.get("signal", 0),
+                    "orb_signal":    orb_signal.get("signal", 0),
+                    "headwinds":     fundamentals.get("headwinds", []),
+                    "tailwinds":     fundamentals.get("tailwinds", []),
+                    "session_hour":  datetime.now(ET).hour,
+                })
+
+                llm_strategy   = llm_rec.get("strategy", "FLAT")
+                llm_confidence = llm_rec.get("confidence", 0.0)
+                llm_source     = llm_rec.get("source", "fallback")
+
+                logger.info(
+                    f"[LLM] strategy={llm_strategy}  bias={llm_rec.get('bias')}  "
+                    f"confidence={llm_confidence:.0%}  source={llm_source}"
+                )
+                logger.info(f"[LLM] reasoning: {llm_rec.get('reasoning', '')}")
+
+                try:
+                    log_event(
+                        f"LLM: {llm_strategy} ({llm_rec.get('bias')}, {llm_confidence:.0%} conf)",
+                        "INFO",
+                        llm_rec.get("reasoning", ""),
+                    )
+                except Exception:
+                    pass
+
+                # Apply override only when LLM has a real answer above confidence gate
+                if llm_source != "fallback" and llm_confidence >= settings.LLM_MIN_CONFIDENCE:
+                    if llm_strategy == "FLAT":
+                        signal      = brt_signal   # keep indicators for logging
+                        strategy_id = "FLAT"
+                        logger.info("[LLM] Overriding to FLAT")
+                    elif llm_strategy == "BRT" and brt_signal.get("signal", 0) != 0:
+                        signal      = brt_signal
+                        strategy_id = "BRT"
+                        logger.info("[LLM] Confirmed: BRT")
+                    elif llm_strategy == "ORB" and orb_signal.get("signal", 0) != 0:
+                        signal      = orb_signal
+                        strategy_id = "ORB"
+                        logger.info("[LLM] Overriding to ORB")
+                    else:
+                        # LLM recommended a strategy with no active signal → FLAT
+                        logger.info(
+                            f"[LLM] Recommended {llm_strategy} but no signal active — staying FLAT"
+                        )
+                        signal      = brt_signal
+                        strategy_id = "FLAT"
+                else:
+                    logger.info(
+                        f"[LLM] Low confidence ({llm_confidence:.0%}) or fallback "
+                        f"— keeping rule-based routing ({strategy_id})"
+                    )
+
+            except Exception as llm_err:
+                logger.warning(f"[LLM] Selector error (using rule-based): {llm_err}")
 
         # ── Entry logic ───────────────────────────────────────────────────
         if signal.get("signal", 0) != 0:

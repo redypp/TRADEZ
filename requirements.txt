@@ -12,3 +12,7 @@ pytz>=2024.1
 # Web dashboard
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
+
+# Multi-LLM Strategy Selector
+anthropic>=0.40.0      # Claude orchestrator
+openai>=1.30.0         # GPT-4 analyst + Grok (xAI uses OpenAI-compatible API)

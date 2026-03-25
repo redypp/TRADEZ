@@ -21,6 +21,23 @@ TRADOVATE_SEC         = os.getenv("TRADOVATE_SEC", "")
 ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 
+# ── Multi-LLM Strategy Selector ───────────────────────────────────────────
+# Set LLM_SELECTOR_ENABLED=true in .env to activate the AI strategy selection layer.
+# When disabled, the rule-based BRT → ORB fallback runs as before.
+LLM_SELECTOR_ENABLED = os.getenv("LLM_SELECTOR_ENABLED", "false").lower() == "true"
+
+# Claude (Anthropic) — orchestrator: receives all specialist inputs, makes final call
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# OpenAI GPT-4 — macro/quantitative analyst
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+# xAI Grok — real-time X/Twitter sentiment + live news (OpenAI-compatible API)
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+
+# Minimum LLM confidence to act on a recommendation (below this → FLAT)
+LLM_MIN_CONFIDENCE = float(os.getenv("LLM_MIN_CONFIDENCE", "0.60"))
+
 # Trading mode
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 
