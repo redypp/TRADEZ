@@ -36,7 +36,9 @@ import pytz
 from config import settings
 from data.fetcher import fetch_historical
 from data.fundamentals import get_live_fundamentals, print_fundamentals
+from data.trade_log import init_db, log_trade, log_event, update_bot_state, get_daily_summary
 from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
+from strategy.regime import get_regime_params, get_regime_info
 from strategy.orb import get_orb_signal_15min
 from risk.manager import RiskBlock, check_all, check_daily_drawdown
 from execution.tradovate import (
@@ -131,6 +133,8 @@ def run_signal_check() -> None:
         9. Disconnect
     """
     logger.info("─── Hourly signal check starting ───")
+    try: log_event("Signal check started", "INFO")
+    except Exception: pass
 
     try:
         _ensure_auth()
@@ -146,13 +150,31 @@ def run_signal_check() -> None:
         fundamentals = get_live_fundamentals()
         print_fundamentals(fundamentals)
 
+        # ── Regime detection — drives adaptive BRT parameters ─────────────
+        regime_info   = get_regime_info(fundamentals.get("vix"))
+        regime_params = get_regime_params(fundamentals.get("vix"))
+
+        logger.info(
+            f"Regime: {regime_info['regime']}  "
+            f"(ADX_min={regime_info.get('adx_min')}  "
+            f"SL={regime_info.get('sl_buffer')}×ATR  "
+            f"TP={regime_info.get('tp_rr')}R)"
+        )
+        try:
+            log_event(
+                f"Regime: {regime_info['regime']}",
+                "INFO",
+                f"VIX {fundamentals.get('vix', '?'):.1f} — {regime_info['description']}"
+            )
+        except Exception: pass
+
         # ── Current MES position ──────────────────────────────────────────
         open_position = get_open_mes_position()
         logger.info(f"Open MES position: {open_position:+d} contracts")
 
-        # ── Price data ────────────────────────────────────────────────────
+        # ── Price data (regime params injected into strategy) ─────────────
         df = fetch_historical("MES", period="60d", timeframe_minutes=15)
-        df = prepare_break_retest(df, long_only=True)
+        df = prepare_break_retest(df, long_only=True, regime_params=regime_params)
 
         # ── Strategy signals (B&R priority; ORB fallback) ─────────────
         brt_signal = get_latest_brt_signal(df)
@@ -174,6 +196,41 @@ def run_signal_check() -> None:
             f"RSI={signal.get('rsi', 0):.1f}  "
             f"Close={signal.get('close', 0):.2f}"
         )
+
+        # ── Push live state snapshot to SQLite for dashboard ──────────────
+        try:
+            daily = get_daily_summary()
+            et_hour = datetime.now(ET).hour
+            update_bot_state({
+                "brt_state":    "NEUTRAL",  # refined below if in a watch state
+                "close":        signal.get("close"),
+                "ema20":        signal.get("ema20"),
+                "atr":          signal.get("atr"),
+                "adx":          signal.get("adx"),
+                "rsi":          signal.get("rsi"),
+                "vwap":         signal.get("vwap"),
+                "pdh":          signal.get("pdh"),
+                "pdl":          signal.get("pdl"),
+                "swing_hi":     signal.get("swing_hi"),
+                "swing_lo":     signal.get("swing_lo"),
+                "regime":       regime_info["regime"],
+                "vix":          fundamentals.get("vix"),
+                "yield_10y":    fundamentals.get("yield_10y"),
+                "dxy":          fundamentals.get("dxy"),
+                "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
+                "session_open": 1 if 10 <= et_hour < 15 else 0,
+                "daily_pnl":    daily.get("total_pnl", 0.0),
+                "trades_today": daily.get("total", 0),
+                "adx_min":      regime_info.get("adx_min"),
+                "sl_buffer":    regime_info.get("sl_buffer"),
+                "tp_rr":        regime_info.get("tp_rr"),
+                "max_retest_bars": regime_info.get("max_retest_bars"),
+                "headwinds":    fundamentals.get("headwinds", []),
+                "tailwinds":    fundamentals.get("tailwinds", []),
+                "paper_trading": 1 if settings.PAPER_TRADING else 0,
+            })
+        except Exception as db_err:
+            logger.warning(f"State DB write failed (non-fatal): {db_err}")
 
         # ── Telegram hourly summary (smart — only fires if noteworthy) ────
         notify_signal_check(signal, fundamentals)
@@ -203,6 +260,30 @@ def run_signal_check() -> None:
                     direction = direction,
                 )
 
+                # Log activity event
+                try:
+                    log_event(
+                        f"{'LONG' if direction == 1 else 'SHORT'} entry — {level_type} @ {entry_price:.2f}",
+                        "TRADE",
+                        f"SL {sl_price:.2f} | TP {tp_price:.2f} | {contracts} contract(s)"
+                    )
+                except Exception: pass
+
+                # Log trade to SQLite
+                try:
+                    log_trade(
+                        direction   = "LONG" if direction == 1 else "SHORT",
+                        level_type  = level_type,
+                        entry_price = entry_price,
+                        stop_loss   = sl_price,
+                        take_profit = tp_price,
+                        contracts   = contracts,
+                        regime      = regime_info.get("regime"),
+                        vix         = fundamentals.get("vix"),
+                    )
+                except Exception as db_err:
+                    logger.warning(f"Trade log write failed (non-fatal): {db_err}")
+
                 # Update session counters (P&L filled in by exit logic, see below)
                 _session["trades_today"] += 1
 
@@ -218,6 +299,8 @@ def run_signal_check() -> None:
             except RiskBlock as rb:
                 logger.warning(f"Risk block: {rb}")
                 notify_risk_block(str(rb))
+                try: log_event(f"Risk block: {rb}", "WARN")
+                except Exception: pass
 
     except RiskBlock as rb:
         # Daily drawdown limit hit — block for the rest of the session
@@ -273,11 +356,13 @@ def run_eod_summary() -> None:
 # ─── Scheduler setup ──────────────────────────────────────────────────────────
 
 def main() -> None:
+    init_db()  # ensure SQLite tables exist before scheduler fires
+
     logger.info("=" * 50)
     logger.info("  TRADEZ — Automated Paper Trading Bot")
     logger.info(f"  Mode   : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
     logger.info(f"  Broker : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
-    logger.info(f"  Symbol : MES  (Break & Retest, 1h)")
+    logger.info(f"  Symbol : MES  (Break & Retest, 15min)")
     logger.info(f"  Session: 10:02 – 15:02 ET  (Mon–Fri)")
     logger.info("=" * 50)
 

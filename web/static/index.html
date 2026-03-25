@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TRADEZ — MES Live Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ HEADER -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="logo-mark"></div>
+    <span class="brand">TRADEZ</span>
+    <span class="brand-sep">/</span>
+    <span class="brand-sub">MES Break &amp; Retest</span>
+  </div>
+  <div class="topbar-right">
+    <div id="conn-indicator" class="conn-dot conn-connecting" title="Connecting…"></div>
+    <span id="conn-label" class="conn-label">CONNECTING</span>
+    <div class="topbar-divider"></div>
+    <span id="mode-badge" class="mode-badge mode-paper">PAPER</span>
+    <div class="topbar-divider"></div>
+    <span class="clock" id="clock">--:--:-- ET</span>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════ REGIME STRIP -->
+<div id="regime-strip" class="regime-strip">
+  <div class="regime-left">
+    <span class="regime-eyebrow">MARKET REGIME</span>
+    <span id="r-name" class="regime-name">—</span>
+  </div>
+  <div class="regime-center">
+    <span id="r-desc" class="regime-desc">Fetching market data…</span>
+    <div class="regime-macro">
+      <span class="macro-chip"><span class="macro-lbl">VIX</span> <span id="m-vix">—</span></span>
+      <span class="macro-chip"><span class="macro-lbl">10Y</span> <span id="m-yield">—</span></span>
+      <span class="macro-chip"><span class="macro-lbl">DXY</span> <span id="m-dxy">—</span></span>
+      <span class="macro-chip"><span class="macro-lbl">SPY VOL</span> <span id="m-vol">—</span></span>
+    </div>
+  </div>
+  <div class="regime-right">
+    <span id="r-trade-ok" class="regime-trade-badge">—</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ MAIN -->
+<main class="main-grid">
+
+  <!-- ── Row 1: Status cards ───────────────────────────────────── -->
+  <div class="status-row">
+
+    <div class="card card-state">
+      <div class="card-eyebrow">Bot State</div>
+      <div id="s-state" class="state-badge state-neutral">
+        <span class="state-dot"></span>
+        <span id="s-state-text">NEUTRAL</span>
+      </div>
+      <div id="s-watch" class="state-watch">—</div>
+      <div id="s-next-check" class="card-meta">—</div>
+    </div>
+
+    <div class="card card-session">
+      <div class="card-eyebrow">Session</div>
+      <div id="s-session" class="metric-large text-muted">CLOSED</div>
+      <div class="card-meta">10:00 – 15:00 ET</div>
+      <div class="session-progress-wrap">
+        <div id="session-progress" class="session-progress-bar"></div>
+      </div>
+    </div>
+
+    <div class="card card-pnl">
+      <div class="card-eyebrow">Today P&amp;L</div>
+      <div id="s-pnl" class="metric-large">$—</div>
+      <div class="pnl-stats">
+        <span id="s-wins" class="pnl-wins">0W</span>
+        <span class="pnl-sep">/</span>
+        <span id="s-losses" class="pnl-losses">0L</span>
+        <span id="s-trades" class="pnl-total">&nbsp;(0 trades)</span>
+      </div>
+    </div>
+
+    <div class="card card-price">
+      <div class="card-eyebrow">MES Price</div>
+      <div id="s-price" class="metric-large mono">—</div>
+      <div class="price-meta">
+        <span class="price-label">EMA20</span>
+        <span id="s-ema-dist" class="price-ema-dist">—</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 2: Indicators ─────────────────────────────────────── -->
+  <div class="indicators-row">
+
+    <div class="card ind-card">
+      <div class="ind-header">
+        <span class="card-eyebrow">ADX</span>
+        <span id="i-adx-req" class="ind-req">min —</span>
+      </div>
+      <div class="ind-body">
+        <span id="i-adx" class="ind-value mono">—</span>
+        <span id="i-adx-status" class="ind-badge">—</span>
+      </div>
+      <div class="ind-track">
+        <div id="i-adx-fill" class="ind-fill ind-fill-blue" style="width:0%"></div>
+        <div id="i-adx-thresh" class="ind-thresh-line" style="left:33%"></div>
+      </div>
+      <div class="ind-foot">trend strength</div>
+    </div>
+
+    <div class="card ind-card">
+      <div class="ind-header">
+        <span class="card-eyebrow">RSI</span>
+        <span class="ind-req">35 – 75</span>
+      </div>
+      <div class="ind-body">
+        <span id="i-rsi" class="ind-value mono">—</span>
+        <span id="i-rsi-status" class="ind-badge">—</span>
+      </div>
+      <div class="ind-track">
+        <div class="ind-zone" style="left:35%;width:40%"></div>
+        <div id="i-rsi-fill" class="ind-fill ind-fill-purple" style="width:0%"></div>
+      </div>
+      <div class="ind-foot">momentum</div>
+    </div>
+
+    <div class="card ind-card">
+      <div class="ind-header">
+        <span class="card-eyebrow">ATR (14)</span>
+      </div>
+      <div class="ind-body">
+        <span id="i-atr" class="ind-value mono">—</span>
+        <span class="ind-badge ind-badge-neutral">pts</span>
+      </div>
+      <div class="ind-track">
+        <div id="i-atr-fill" class="ind-fill ind-fill-amber" style="width:0%"></div>
+      </div>
+      <div class="ind-foot">avg true range</div>
+    </div>
+
+    <div class="card ind-card">
+      <div class="ind-header">
+        <span class="card-eyebrow">EMA 20</span>
+      </div>
+      <div class="ind-body">
+        <span id="i-ema" class="ind-value mono">—</span>
+        <span id="i-ema-trend" class="ind-badge">—</span>
+      </div>
+      <div class="ind-track">
+        <div id="i-ema-fill" class="ind-fill" style="width:50%"></div>
+      </div>
+      <div id="i-ema-foot" class="ind-foot">trend alignment</div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 3: Levels + Params ────────────────────────────────── -->
+  <div class="detail-row">
+
+    <!-- Levels -->
+    <div class="card levels-card">
+      <div class="levels-header">
+        <span class="card-eyebrow">KEY LEVELS</span>
+        <span class="levels-note">distance from price</span>
+      </div>
+      <div class="levels-list" id="levels-list">
+        <!-- JS renders these -->
+        <div class="level-row" id="lrow-vwap">
+          <span class="lrow-icon lrow-vwap-icon">V</span>
+          <span class="lrow-name">VWAP</span>
+          <span class="lrow-price mono" id="l-vwap">—</span>
+          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-vwap"></div></div>
+          <span class="lrow-dist" id="ld-vwap">—</span>
+        </div>
+        <div class="level-row" id="lrow-pdh">
+          <span class="lrow-icon lrow-pdh-icon">H</span>
+          <span class="lrow-name">PDH</span>
+          <span class="lrow-price mono" id="l-pdh">—</span>
+          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-pdh"></div></div>
+          <span class="lrow-dist" id="ld-pdh">—</span>
+        </div>
+        <div class="level-row" id="lrow-pdl">
+          <span class="lrow-icon lrow-pdl-icon">L</span>
+          <span class="lrow-name">PDL</span>
+          <span class="lrow-price mono" id="l-pdl">—</span>
+          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-pdl"></div></div>
+          <span class="lrow-dist" id="ld-pdl">—</span>
+        </div>
+        <div class="level-row" id="lrow-shi">
+          <span class="lrow-icon lrow-swing-icon">↑</span>
+          <span class="lrow-name">Swing Hi</span>
+          <span class="lrow-price mono" id="l-shi">—</span>
+          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-shi"></div></div>
+          <span class="lrow-dist" id="ld-shi">—</span>
+        </div>
+        <div class="level-row" id="lrow-slo">
+          <span class="lrow-icon lrow-swing-icon lrow-swing-lo">↓</span>
+          <span class="lrow-name">Swing Lo</span>
+          <span class="lrow-price mono" id="l-slo">—</span>
+          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-slo"></div></div>
+          <span class="lrow-dist" id="ld-slo">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Regime Params + Macro -->
+    <div class="card params-card">
+      <div class="card-eyebrow">REGIME PARAMETERS</div>
+
+      <div class="params-grid">
+        <div class="param-item">
+          <span class="param-label">ADX minimum</span>
+          <span id="p-adx" class="param-value mono">—</span>
+        </div>
+        <div class="param-item">
+          <span class="param-label">SL buffer</span>
+          <span id="p-sl" class="param-value mono">—</span>
+        </div>
+        <div class="param-item">
+          <span class="param-label">Take profit</span>
+          <span id="p-tp" class="param-value mono">—</span>
+        </div>
+        <div class="param-item">
+          <span class="param-label">Max retest bars</span>
+          <span id="p-bars" class="param-value mono">—</span>
+        </div>
+      </div>
+
+      <div class="macro-divider"></div>
+
+      <div class="card-eyebrow" style="margin-bottom:10px">MACRO CONDITIONS</div>
+      <div id="macro-list" class="macro-list">
+        <div class="macro-item text-muted">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 4: Chart + Activity feed side by side ─────────────── -->
+  <div class="bottom-row">
+
+    <div class="card chart-card">
+      <div class="chart-header">
+        <span class="card-eyebrow">EQUITY CURVE</span>
+        <span id="chart-pnl" class="chart-pnl">$0.00</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="equity-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="card feed-card">
+      <div class="feed-header">
+        <span class="card-eyebrow">LIVE ACTIVITY</span>
+        <span id="feed-count" class="feed-count"></span>
+      </div>
+      <div class="feed-list" id="feed-list">
+        <div class="feed-item feed-info">
+          <span class="feed-dot"></span>
+          <span class="feed-msg text-muted">Waiting for bot activity…</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Row 5: Trade log ───────────────────────────────────────── -->
+  <div class="card trades-card">
+    <div class="trades-header">
+      <span class="card-eyebrow">TRADE LOG</span>
+      <span id="trades-count" class="trades-count"></span>
+    </div>
+    <div class="table-scroll">
+      <table class="trades-table">
+        <thead>
+          <tr>
+            <th>Time (UTC)</th>
+            <th>Dir</th>
+            <th>Level</th>
+            <th>Entry</th>
+            <th>Stop</th>
+            <th>Target</th>
+            <th>Exit</th>
+            <th>Reason</th>
+            <th>P&amp;L</th>
+            <th>Regime</th>
+            <th>VIX</th>
+          </tr>
+        </thead>
+        <tbody id="trades-body">
+          <tr><td colspan="11" class="table-empty">No trades recorded yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

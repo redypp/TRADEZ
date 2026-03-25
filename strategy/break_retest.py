@@ -149,7 +149,8 @@ def _calc_pdh_pdl(df: pd.DataFrame):
 # Core: Stateful Break & Retest Signal Detection
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
+def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
+                        regime_params: dict | None = None) -> tuple:
     """
     Iterate bar-by-bar and detect break & retest entry signals.
 
@@ -158,8 +159,22 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
         WATCHING_LONG    → bull break confirmed, waiting for retest
         WATCHING_SHORT   → bear break confirmed, waiting for retest
 
-    Returns four numpy arrays: signals, stop_losses, take_profits, retest_levels, level_types
+    Args:
+        df            : Prepared OHLCV DataFrame with indicators
+        long_only     : If True, only long setups are generated
+        regime_params : Adaptive param overrides from RegimeEngine (None = use settings defaults)
+
+    Returns five numpy arrays: signals, stop_losses, take_profits, retest_levels, level_types
     """
+    # ── Resolve parameters (regime overrides, else settings defaults) ─────
+    p = regime_params or {}
+    adx_min        = p.get("adx_min",         settings.BRT_ADX_MIN)
+    sl_buffer      = p.get("sl_buffer",        settings.BRT_SL_BUFFER)
+    tp_rr          = p.get("tp_rr",            settings.BRT_TP_RR)
+    max_retest_bars = p.get("max_retest_bars", settings.BRT_MAX_RETEST_BARS)
+    lev_tolerance  = p.get("level_tolerance",  settings.BRT_LEVEL_TOLERANCE)
+    break_body_min = p.get("break_body_min",   settings.BRT_BREAK_BODY_MIN)
+
     n = len(df)
     signals      = np.zeros(n, dtype=float)
     stop_losses  = np.full(n, np.nan)
@@ -186,7 +201,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
         atr       = row["atr"]
         # VWAP uses tighter tolerance — it's a precise, actively defended level
         tolerance = (settings.BRT_VWAP_TOLERANCE if broken_ltype == "VWAP"
-                     else settings.BRT_LEVEL_TOLERANCE) * atr
+                     else lev_tolerance) * atr
         buf       = settings.BRT_BREAK_BUFFER * atr
 
         # ── Volume check helper ───────────────────────────────────────
@@ -201,7 +216,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
         if state in ("WATCHING_LONG", "WATCHING_SHORT"):
             bars_waited = i - break_bar_idx
 
-            if bars_waited > settings.BRT_MAX_RETEST_BARS:
+            if bars_waited > max_retest_bars:
                 state = "NEUTRAL"
                 broken_level = np.nan
                 broken_ltype = ""
@@ -217,25 +232,24 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
                     #   1. Bullish candle (close > open) with meaningful body
                     #   2. Close is clearly ABOVE the broken level (not just in zone)
                     #   3. EMA20 trend alignment
-                    #   4. ADX shows active trend (>= BRT_ADX_MIN)
+                    #   4. ADX shows active trend (>= adx_min from regime)
                     #   5. RSI in healthy range (not freefall, not overbought)
                     candle_body   = row["close"] - row["open"]
-                    bullish_body  = candle_body > 0                         # close > open
-                    close_above   = row["close"] > broken_level             # close clearly above level
-                    ema_ok        = row["close"] > row["ema20"]             # price above short-term MA
-                    adx_ok        = row["adx"] > settings.BRT_ADX_MIN      # trending
+                    bullish_body  = candle_body > 0
+                    close_above   = row["close"] > broken_level
+                    ema_ok        = row["close"] > row["ema20"]
+                    adx_ok        = row["adx"] > adx_min
                     rsi_ok        = (settings.BRT_RSI_LONG_MIN < row["rsi"] < settings.BRT_RSI_LONG_MAX)
 
                     if bullish_body and close_above and ema_ok and adx_ok and rsi_ok:
-                        # SL = below retest candle low, anchored at broken_level if tighter
-                        sl_candle = row["low"] - settings.BRT_SL_BUFFER * atr
-                        sl_level  = broken_level - settings.BRT_SL_BUFFER * atr
-                        sl        = min(sl_candle, sl_level)  # use whichever gives more room
+                        sl_candle = row["low"] - sl_buffer * atr
+                        sl_level  = broken_level - sl_buffer * atr
+                        sl        = min(sl_candle, sl_level)
                         risk      = row["close"] - sl
                         if risk > 0:
                             signals[i]      = 1
                             stop_losses[i]  = round(sl, 2)
-                            take_profits[i] = round(row["close"] + settings.BRT_TP_RR * risk, 2)
+                            take_profits[i] = round(row["close"] + tp_rr * risk, 2)
                             retest_arr[i]   = broken_level
                             level_types[i]  = broken_ltype
                             state         = "NEUTRAL"
@@ -260,18 +274,18 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
                     bearish_body  = candle_body > 0
                     close_below   = row["close"] < broken_level
                     ema_ok        = row["close"] < row["ema20"]
-                    adx_ok        = row["adx"] > settings.BRT_ADX_MIN
+                    adx_ok        = row["adx"] > adx_min
                     rsi_ok        = (settings.BRT_RSI_SHORT_MIN < row["rsi"] < settings.BRT_RSI_SHORT_MAX)
 
                     if bearish_body and close_below and ema_ok and adx_ok and rsi_ok:
-                        sl_candle = row["high"] + settings.BRT_SL_BUFFER * atr
-                        sl_level  = broken_level + settings.BRT_SL_BUFFER * atr
+                        sl_candle = row["high"] + sl_buffer * atr
+                        sl_level  = broken_level + sl_buffer * atr
                         sl        = max(sl_candle, sl_level)
                         risk      = sl - row["close"]
                         if risk > 0:
                             signals[i]      = -1
                             stop_losses[i]  = round(sl, 2)
-                            take_profits[i] = round(row["close"] - settings.BRT_TP_RR * risk, 2)
+                            take_profits[i] = round(row["close"] - tp_rr * risk, 2)
                             retest_arr[i]   = broken_level
                             level_types[i]  = broken_ltype
                             state         = "NEUTRAL"
@@ -318,10 +332,9 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
             if "swing_lo" in df.columns and pd.notna(row["swing_lo"]) and not long_only:
                 levels.append(("SWING", float(row["swing_lo"]), "short"))
 
-            # Break candle body filter: close - open must be > BRT_BREAK_BODY_MIN * ATR
-            # This avoids doji/indecision candles being counted as valid breaks
-            break_body_long  = (row["close"] - row["open"]) >= settings.BRT_BREAK_BODY_MIN * atr
-            break_body_short = (row["open"] - row["close"]) >= settings.BRT_BREAK_BODY_MIN * atr
+            # Break candle body filter — regime-adaptive threshold
+            break_body_long  = (row["close"] - row["open"]) >= break_body_min * atr
+            break_body_short = (row["open"] - row["close"]) >= break_body_min * atr
 
             for ltype, level, direction in levels:
                 if direction == "long":
@@ -346,7 +359,8 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool) -> tuple:
 # Public: prepare_break_retest
 # ─────────────────────────────────────────────────────────────────────────────
 
-def prepare_break_retest(df: pd.DataFrame, long_only: bool = True) -> pd.DataFrame:
+def prepare_break_retest(df: pd.DataFrame, long_only: bool = True,
+                         regime_params: dict | None = None) -> pd.DataFrame:
     """
     Prepare 15-minute OHLCV data for the Break & Retest strategy.
 
@@ -366,8 +380,9 @@ def prepare_break_retest(df: pd.DataFrame, long_only: bool = True) -> pd.DataFra
         level_type    — 'VWAP', 'PDH', 'PDL', or 'SWING'
 
     Args:
-        df        : OHLCV DataFrame with DatetimeIndex
-        long_only : If True, only long setups are generated (MES default)
+        df            : OHLCV DataFrame with DatetimeIndex
+        long_only     : If True, only long setups are generated (MES default)
+        regime_params : Adaptive param overrides from RegimeEngine (None = use settings defaults)
     """
     df = df.copy()
 
@@ -410,7 +425,7 @@ def prepare_break_retest(df: pd.DataFrame, long_only: bool = True) -> pd.DataFra
 
     # ── Break & Retest Signal Detection ──────────────────────────────────
     signals, stop_losses, take_profits, retest_arr, level_types = _detect_brt_signals(
-        df, long_only=long_only
+        df, long_only=long_only, regime_params=regime_params
     )
 
     df["signal"]       = signals
