@@ -154,11 +154,112 @@ def backtest_rsi2(symbol: str = "SPY") -> dict:
     return metrics
 
 
+def backtest_vwap_sweep(symbol: str = "SPY", timeframe: int = 60) -> dict:
+    """
+    Parameter sweep for VWAP Mean Reversion across ADX_MAX × BAND_MULTIPLIER grid.
+
+    Uses SPY at 1h (730d) as a calibration proxy — same S&P price action as MES
+    but 2 years of data (~1,900 actionable bars vs 60d cap on 5-min).
+    This is a CALIBRATION AID; live trading runs on MES 5-min.
+
+    Sweeps:
+        adx_max         : [12, 15, 18, 20, 22, 25, 30]
+        band_multiplier : [1.0, 1.25, 1.5, 1.75, 2.0, 2.5]
+
+    Ranks by profit factor, prints results table, returns best params.
+    """
+    ADX_CANDIDATES  = [12, 15, 18, 20, 22, 25, 30]
+    BAND_CANDIDATES = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5]
+    MIN_TRADES      = 15   # ignore combos with too few trades (statistically meaningless)
+
+    print(f"\nFetching {symbol} {timeframe}-min data (730d) for VWAP MR sweep...")
+    df_raw = yf.download(symbol, period="730d", interval=f"{timeframe}m",
+                         progress=False, auto_adjust=True)
+    if isinstance(df_raw.columns, pd.MultiIndex):
+        df_raw.columns = df_raw.columns.get_level_values(0)
+    df_raw.columns = [c.lower() for c in df_raw.columns]
+    df_raw = df_raw[["open", "high", "low", "close", "volume"]].dropna()
+    print(f"  {len(df_raw)} bars fetched ({df_raw.index[0].date()} → {df_raw.index[-1].date()})")
+
+    results = []
+    total = len(ADX_CANDIDATES) * len(BAND_CANDIDATES)
+    done  = 0
+
+    for adx_max in ADX_CANDIDATES:
+        for band_mult in BAND_CANDIDATES:
+            done += 1
+            df = prepare_vwap_reversion(df_raw.copy(), adx_max=adx_max, band_multiplier=band_mult)
+            result = run_backtest(df, strategy="VWAP_MR", initial_capital=INITIAL_CAPITAL)
+            trades = result["trades"]
+
+            n_trades = len(trades)
+            if n_trades < MIN_TRADES:
+                results.append({
+                    "adx_max": adx_max, "band_mult": band_mult,
+                    "trades": n_trades, "win_rate": 0.0,
+                    "profit_factor": 0.0, "sharpe": 0.0,
+                    "return_pct": 0.0,
+                })
+                continue
+
+            wins    = trades[trades["pnl"] > 0]
+            losses  = trades[trades["pnl"] <= 0]
+            wr      = len(wins) / n_trades * 100
+            gross_p = wins["pnl"].sum()
+            gross_l = abs(losses["pnl"].sum())
+            pf      = (gross_p / gross_l) if gross_l > 0 else float("inf")
+
+            eq = pd.Series(result["equity_curve"])
+            ret_pct = (result["final_capital"] - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
+            daily_ret = eq.pct_change().dropna()
+            sharpe = (daily_ret.mean() / daily_ret.std() * (252 ** 0.5)) if daily_ret.std() > 0 else 0.0
+
+            results.append({
+                "adx_max": adx_max, "band_mult": band_mult,
+                "trades": n_trades, "win_rate": round(wr, 1),
+                "profit_factor": round(pf, 2), "sharpe": round(sharpe, 2),
+                "return_pct": round(ret_pct, 1),
+            })
+
+    # Sort by profit factor descending
+    results.sort(key=lambda r: r["profit_factor"], reverse=True)
+
+    print(f"\n{'='*70}")
+    print(f"  VWAP MR PARAMETER SWEEP — {symbol} {timeframe}min (730d)")
+    print(f"  Calibration proxy for MES 5-min live strategy")
+    print(f"{'='*70}")
+    print(f"  {'ADX_MAX':>8}  {'BAND':>6}  {'TRADES':>7}  {'WR%':>6}  {'PF':>6}  {'Sharpe':>7}  {'Ret%':>6}")
+    print(f"  {'-'*62}")
+    for r in results[:20]:  # top 20
+        flag = " ◄ BEST" if r == results[0] else ""
+        pf_str = f"{r['profit_factor']:.2f}" if r["profit_factor"] != float("inf") else "  INF"
+        print(f"  {r['adx_max']:>8}  {r['band_mult']:>6.2f}  {r['trades']:>7}  "
+              f"{r['win_rate']:>5.1f}%  {pf_str:>6}  {r['sharpe']:>7.2f}  {r['return_pct']:>+5.1f}%{flag}")
+    print(f"{'='*70}")
+
+    best = results[0]
+    print(f"\n  RECOMMENDATION:")
+    print(f"    VWAP_MR_ADX_MAX         = {best['adx_max']}")
+    print(f"    VWAP_MR_BAND_MULTIPLIER = {best['band_mult']}")
+    print(f"    ({best['trades']} trades | {best['win_rate']}% WR | {best['profit_factor']} PF)")
+    print(f"\n  NOTE: Tune on MES 5-min once you have 500+ live trades.")
+    print(f"        This sweep uses SPY 1h as a directionally-correct proxy.\n")
+
+    # Save full results to CSV
+    os.makedirs("data", exist_ok=True)
+    path = "data/vwap_mr_sweep.csv"
+    pd.DataFrame(results).to_csv(path, index=False)
+    print(f"  Full sweep saved → {path}")
+
+    return best
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="TRADEZ Backtest Runner")
-    parser.add_argument("--strategy", choices=["all", "BRT", "ORB", "DONCHIAN", "VWAP_MR", "RSI2"],
+    parser.add_argument("--strategy",
+                        choices=["all", "BRT", "ORB", "DONCHIAN", "VWAP_MR", "RSI2", "VWAP_SWEEP"],
                         default="all", help="Strategy to backtest (default: all)")
     args = parser.parse_args()
 
@@ -194,6 +295,10 @@ if __name__ == "__main__":
         metrics = backtest_rsi2("SPY")
         if metrics:
             all_metrics["SPY_RSI2"] = metrics
+
+    # ── VWAP MR parameter sweep (SPY 1h 730d calibration) ────────────────────
+    if args.strategy == "VWAP_SWEEP":
+        backtest_vwap_sweep(symbol="SPY", timeframe=60)
 
     if len(all_metrics) > 1:
         print("\n" + "=" * 45)
