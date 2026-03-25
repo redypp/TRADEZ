@@ -154,6 +154,22 @@ BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity swe
 BRT_VSA_NO_DEMAND_CHECK    = False  # Toggle on/off
 BRT_VSA_MIN_VOLUME_RATIO   = 0.60   # Minimum volume ratio (of vol_ma) for retest bar
 
+# ── VWAP Mean Reversion (MES, 5-min) ─────────────────────────────────────
+# ADX_MAX is the most impactful parameter — controls regime filter.
+# Sweep result (2026-03-25, SPY 1h 730d):
+#   ADX_MAX=30 → 45.8% WR, 1.01 PF (too loose — trades in trending days)
+#   ADX_MAX=18 → best Sharpe + PF in sweep (only trade true ranging days)
+# BAND_MULTIPLIER: deviation band width. 1.5 SD = conservative, fewer but higher-quality entries.
+VWAP_MR_BAND_MULTIPLIER = float(os.getenv("VWAP_MR_BAND_MULTIPLIER", "1.5"))
+VWAP_MR_ADX_MAX         = float(os.getenv("VWAP_MR_ADX_MAX",         "18"))   # tightened from 30
+VWAP_MR_RSI_PERIOD      = int(os.getenv("VWAP_MR_RSI_PERIOD",        "5"))
+VWAP_MR_RSI_LONG_MAX    = float(os.getenv("VWAP_MR_RSI_LONG_MAX",    "40"))
+VWAP_MR_RSI_SHORT_MIN   = float(os.getenv("VWAP_MR_RSI_SHORT_MIN",   "60"))
+VWAP_MR_TP_BUFFER       = float(os.getenv("VWAP_MR_TP_BUFFER",       "0.20"))
+VWAP_MR_SESSION_START   = int(os.getenv("VWAP_MR_SESSION_START",     "10"))
+VWAP_MR_SESSION_END     = int(os.getenv("VWAP_MR_SESSION_END",       "15"))
+VWAP_MR_MAX_ENTRIES     = int(os.getenv("VWAP_MR_MAX_ENTRIES",       "2"))
+
 # ── MES cost model (used in backtest for realistic P&L) ──────────────────
 BRT_POINT_VALUE      = 5.00  # MES: $5 per index point per contract (ES = $50)
 BRT_COST_PER_RT      = 2.40  # Round-trip cost per contract (Tradovate):

@@ -156,3 +156,42 @@ def notify_error(error: str) -> None:
     ts  = datetime.now().strftime("%H:%M ET")
     msg = f"⚠️ <b>BOT ERROR — {ts}</b>\n{error}"
     _send(msg)
+
+
+def notify_llm_advisory(advisory: dict) -> None:
+    """Send AI advisory brief via Telegram."""
+    trigger   = advisory.get("trigger", "HOURLY")
+    sentiment = advisory.get("sentiment", "NEUTRAL")
+    quality   = advisory.get("signal_quality", "N/A")
+    headline  = advisory.get("headline", "AI Advisory")
+    brief     = advisory.get("brief", "")
+    flags     = advisory.get("risk_flags", [])
+    ts        = advisory.get("timestamp", datetime.now().strftime("%H:%M ET"))
+
+    sentiment_icon = {"BULLISH": "🟢", "BEARISH": "🔴", "NEUTRAL": "🟡"}.get(sentiment, "⚪")
+    trigger_icon   = {"SIGNAL": "📡", "PRE_MARKET": "🌅", "HOURLY": "🤖"}.get(trigger, "🤖")
+    quality_icon   = {"HIGH": "✅", "MEDIUM": "🟡", "LOW": "🟠", "N/A": "⚪"}.get(quality, "⚪")
+
+    lines = [
+        f"{trigger_icon} <b>AI Advisory — {ts}</b>",
+        f"{headline}",
+        "",
+        f"Sentiment : {sentiment_icon} {sentiment}",
+    ]
+
+    if quality != "N/A":
+        lines.append(f"Setup quality : {quality_icon} {quality}")
+
+    if brief:
+        lines += ["", brief]
+
+    if flags:
+        lines.append("")
+        for flag in flags[:3]:
+            lines.append(f"⚠️ {flag}")
+
+    watch = advisory.get("watch_for", "")
+    if watch and watch != "n/a":
+        lines += ["", f"Watch : {watch}"]
+
+    _send("\n".join(lines))

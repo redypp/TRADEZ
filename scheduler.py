@@ -26,6 +26,7 @@ Stopping:
 
 import logging
 import sys
+import threading
 import time
 from datetime import datetime, date
 
@@ -41,7 +42,6 @@ from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
 from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
 from strategy.orb import get_orb_signal_15min
-from strategy.llm_selector import get_llm_strategy_selection
 from risk.manager import RiskBlock, check_all, check_daily_drawdown
 from execution.router import router as _router
 from monitor.alerts import (
@@ -51,6 +51,7 @@ from monitor.alerts import (
     notify_risk_block,
     notify_daily_summary,
     notify_error,
+    notify_llm_advisory,
 )
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
@@ -75,6 +76,59 @@ _session: dict = {
     "pnl_today":      0.0,
     "last_trade_date": None,
 }
+
+
+# ─── AI Advisory (background thread helper) ──────────────────────────────────
+
+def _run_advisory(market_ctx: dict, strategy_id: str,
+                  signal_direction: str, trigger: str) -> None:
+    """
+    Runs in a daemon thread — never blocks the execution path.
+    Fetches LLM advisory then pushes it to:
+        1. SQLite bot_state (dashboard picks it up via WebSocket)
+        2. SQLite events feed (dashboard activity log)
+        3. Telegram (optional — only on SIGNAL or PRE_MARKET triggers)
+    """
+    try:
+        from strategy.llm_advisory import get_advisory
+        from data.trade_log import log_event, update_bot_state
+        import json as _json
+
+        advisory = get_advisory(
+            market_data=market_ctx,
+            strategy_id=strategy_id,
+            signal_direction=signal_direction,
+            trigger=trigger,
+        )
+
+        # 1. Persist in bot_state for dashboard
+        try:
+            update_bot_state({"llm_advisory": _json.dumps(advisory)})
+        except Exception:
+            pass
+
+        # 2. Log to events feed
+        flags_str = " | ".join(advisory.get("risk_flags", [])) or "none"
+        try:
+            log_event(
+                f"AI: {advisory.get('headline', '')}",
+                "AI",
+                f"{advisory.get('brief', '')}  |  Flags: {flags_str}",
+            )
+        except Exception:
+            pass
+
+        # 3. Telegram — only for signals and pre-market (not every quiet hour)
+        if trigger in ("SIGNAL", "PRE_MARKET"):
+            try:
+                notify_llm_advisory(advisory)
+            except Exception:
+                pass
+
+        logger.info(f"[Advisory] Done — {advisory.get('headline', '')}")
+
+    except Exception as e:
+        logger.warning(f"[Advisory] Background thread failed: {e}")
 
 
 # ─── Tradovate helpers ────────────────────────────────────────────────────────
@@ -241,77 +295,34 @@ def run_signal_check() -> None:
         # ── Telegram hourly summary (smart — only fires if noteworthy) ────
         notify_signal_check(signal, fundamentals)
 
-        # ── LLM Strategy Selection (overrides rule-based routing if enabled) ─
+        # ── AI Advisory (background thread — never delays execution) ────────
         if settings.LLM_SELECTOR_ENABLED:
-            try:
-                llm_rec = get_llm_strategy_selection({
-                    "close":         brt_signal.get("close"),
-                    "ema20":         brt_signal.get("ema20"),
-                    "vwap":          brt_signal.get("vwap"),
-                    "adx":           brt_signal.get("adx"),
-                    "rsi":           brt_signal.get("rsi"),
-                    "atr":           brt_signal.get("atr"),
-                    "vix":           fundamentals.get("vix"),
-                    "yield_10y":     fundamentals.get("yield_10y"),
-                    "dxy":           fundamentals.get("dxy"),
-                    "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
-                    "regime":        regime_info["regime"],
-                    "vpoc_migration": vpoc_migration,
-                    "brt_signal":    brt_signal.get("signal", 0),
-                    "orb_signal":    orb_signal.get("signal", 0),
-                    "headwinds":     fundamentals.get("headwinds", []),
-                    "tailwinds":     fundamentals.get("tailwinds", []),
-                    "session_hour":  datetime.now(ET).hour,
-                })
-
-                llm_strategy   = llm_rec.get("strategy", "FLAT")
-                llm_confidence = llm_rec.get("confidence", 0.0)
-                llm_source     = llm_rec.get("source", "fallback")
-
-                logger.info(
-                    f"[LLM] strategy={llm_strategy}  bias={llm_rec.get('bias')}  "
-                    f"confidence={llm_confidence:.0%}  source={llm_source}"
-                )
-                logger.info(f"[LLM] reasoning: {llm_rec.get('reasoning', '')}")
-
-                try:
-                    log_event(
-                        f"LLM: {llm_strategy} ({llm_rec.get('bias')}, {llm_confidence:.0%} conf)",
-                        "INFO",
-                        llm_rec.get("reasoning", ""),
-                    )
-                except Exception:
-                    pass
-
-                # Apply override only when LLM has a real answer above confidence gate
-                if llm_source != "fallback" and llm_confidence >= settings.LLM_MIN_CONFIDENCE:
-                    if llm_strategy == "FLAT":
-                        signal      = brt_signal   # keep indicators for logging
-                        strategy_id = "FLAT"
-                        logger.info("[LLM] Overriding to FLAT")
-                    elif llm_strategy == "BRT" and brt_signal.get("signal", 0) != 0:
-                        signal      = brt_signal
-                        strategy_id = "BRT"
-                        logger.info("[LLM] Confirmed: BRT")
-                    elif llm_strategy == "ORB" and orb_signal.get("signal", 0) != 0:
-                        signal      = orb_signal
-                        strategy_id = "ORB"
-                        logger.info("[LLM] Overriding to ORB")
-                    else:
-                        # LLM recommended a strategy with no active signal → FLAT
-                        logger.info(
-                            f"[LLM] Recommended {llm_strategy} but no signal active — staying FLAT"
-                        )
-                        signal      = brt_signal
-                        strategy_id = "FLAT"
-                else:
-                    logger.info(
-                        f"[LLM] Low confidence ({llm_confidence:.0%}) or fallback "
-                        f"— keeping rule-based routing ({strategy_id})"
-                    )
-
-            except Exception as llm_err:
-                logger.warning(f"[LLM] Selector error (using rule-based): {llm_err}")
+            _market_ctx = {
+                "close":         brt_signal.get("close"),
+                "ema20":         brt_signal.get("ema20"),
+                "vwap":          brt_signal.get("vwap"),
+                "adx":           brt_signal.get("adx"),
+                "rsi":           brt_signal.get("rsi"),
+                "atr":           brt_signal.get("atr"),
+                "vix":           fundamentals.get("vix"),
+                "yield_10y":     fundamentals.get("yield_10y"),
+                "dxy":           fundamentals.get("dxy"),
+                "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
+                "regime":        regime_info["regime"],
+                "vpoc_migration": vpoc_migration,
+                "headwinds":     fundamentals.get("headwinds", []),
+                "tailwinds":     fundamentals.get("tailwinds", []),
+                "session_hour":  datetime.now(ET).hour,
+            }
+            _sig_dir = {1: "LONG", -1: "SHORT", 0: "FLAT"}.get(
+                signal.get("signal", 0), "FLAT"
+            )
+            _trigger = "SIGNAL" if strategy_id != "FLAT" else "HOURLY"
+            threading.Thread(
+                target=_run_advisory,
+                args=(_market_ctx, strategy_id, _sig_dir, _trigger),
+                daemon=True,
+            ).start()
 
         # ── Entry logic ───────────────────────────────────────────────────
         if signal.get("signal", 0) != 0:
@@ -435,6 +446,46 @@ def run_eod_summary() -> None:
         notify_error(f"EOD summary failed: {e}")
 
 
+# ─── Pre-market AI briefing ───────────────────────────────────────────────────
+
+def run_premarket_briefing() -> None:
+    """
+    Fires at 9:55 ET — 5 minutes before market open.
+    Fetches live fundamentals + runs AI advisory with PRE_MARKET trigger.
+    Sends a Telegram briefing so the trader knows what to expect today.
+    """
+    logger.info("─── Pre-market AI briefing ───")
+    try:
+        fundamentals = get_live_fundamentals()
+        regime_info  = get_regime_info(fundamentals.get("vix"))
+
+        market_ctx = {
+            "close":         None,
+            "ema20":         None,
+            "vwap":          None,
+            "adx":           None,
+            "rsi":           None,
+            "atr":           None,
+            "vix":           fundamentals.get("vix"),
+            "yield_10y":     fundamentals.get("yield_10y"),
+            "dxy":           fundamentals.get("dxy"),
+            "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
+            "regime":        regime_info["regime"],
+            "vpoc_migration": None,
+            "headwinds":     fundamentals.get("headwinds", []),
+            "tailwinds":     fundamentals.get("tailwinds", []),
+            "session_hour":  9,
+        }
+        threading.Thread(
+            target=_run_advisory,
+            args=(market_ctx, "PRE_MARKET", "N/A", "PRE_MARKET"),
+            daemon=True,
+        ).start()
+
+    except Exception as e:
+        logger.warning(f"Pre-market briefing failed: {e}")
+
+
 # ─── Scheduler setup ──────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -476,6 +527,20 @@ def main() -> None:
         id   = "eod_summary",
         name = "End-of-Day Summary",
     )
+
+    # Pre-market AI briefing at 9:55 ET (before first signal check)
+    if settings.LLM_SELECTOR_ENABLED:
+        scheduler.add_job(
+            func    = run_premarket_briefing,
+            trigger = CronTrigger(
+                day_of_week = "mon-fri",
+                hour        = "9",
+                minute      = "55",
+                timezone    = ET,
+            ),
+            id   = "premarket_briefing",
+            name = "Pre-Market AI Briefing",
+        )
 
     logger.info("Scheduler started. Press Ctrl-C to stop.")
     logger.info("Next signal check jobs:")
