@@ -495,8 +495,7 @@ function renderFeed(events) {
   const newEvs = events.filter(e => e.id > lastEvId);
   if (!newEvs.length) return;
   lastEvId = events[0].id;
-  const lvlCls = { INFO:'fi-info', TRADE:'fi-trade', WARN:'fi-warn', ERROR:'fi-error' };
-  // Remove placeholder
+  const lvlCls = { INFO:'fi-info', TRADE:'fi-trade', WARN:'fi-warn', ERROR:'fi-error', AI:'fi-ai' };
   const placeholder = feedEl.querySelector('.feed-empty');
   if (placeholder) placeholder.remove();
   for (const ev of newEvs) {
@@ -514,6 +513,56 @@ function renderFeed(events) {
   while (feedEl.children.length > 40) feedEl.removeChild(feedEl.lastChild);
 }
 
+// ── AI Advisory ───────────────────────────────────────────────────────────────
+function renderAdvisory(advisory) {
+  const body = $('advisory-body');
+  const triggerEl = $('advisory-trigger');
+  const tsEl = $('advisory-ts');
+  if (!body || !advisory?.available) return;
+
+  const sentiment = (advisory.sentiment || 'NEUTRAL').toUpperCase();
+  const quality   = (advisory.signal_quality || 'N/A').toUpperCase();
+  const trigger   = (advisory.trigger || 'HOURLY').toUpperCase();
+  const flags     = advisory.risk_flags || [];
+
+  const sentimentCls = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[sentiment] || 'neutral';
+  const qualityCls   = { HIGH:'advisory-quality-high', MEDIUM:'advisory-quality-medium',
+                         LOW:'advisory-quality-low', 'N/A':'advisory-quality-na' }[quality] || 'advisory-quality-na';
+  const sentimentIcon = { BULLISH:'▲', BEARISH:'▼', NEUTRAL:'◆' }[sentiment] || '◆';
+
+  if (triggerEl) triggerEl.textContent = trigger;
+  if (tsEl) tsEl.textContent = advisory.timestamp || '';
+
+  const flagsHtml = flags.length
+    ? `<div class="advisory-flags">${flags.map(f => `<div class="advisory-flag">⚠ ${f}</div>`).join('')}</div>`
+    : '';
+
+  const specialistsHtml = (advisory.grok_summary || advisory.gpt4_summary) ? `
+    <div class="advisory-specialists">
+      ${advisory.grok_summary ? `<div class="advisory-spec">
+        <div class="advisory-spec-label">GROK · SENTIMENT</div>
+        <div class="advisory-spec-text">${advisory.grok_summary}</div>
+      </div>` : ''}
+      ${advisory.gpt4_summary ? `<div class="advisory-spec">
+        <div class="advisory-spec-label">GPT-4 · MACRO</div>
+        <div class="advisory-spec-text">${advisory.gpt4_summary}</div>
+      </div>` : ''}
+    </div>` : '';
+
+  body.innerHTML = `
+    <div class="advisory-headline">${advisory.headline || ''}</div>
+    <div class="advisory-meta">
+      <span class="advisory-badge ${sentimentCls}">${sentimentIcon} ${sentiment}</span>
+      ${quality !== 'N/A' ? `<span class="${qualityCls}">Setup: ${quality}</span>` : ''}
+      ${advisory.watch_for && advisory.watch_for !== 'n/a'
+        ? `<span style="font-size:11px;color:var(--text3)">Watch: ${advisory.watch_for}</span>` : ''}
+    </div>
+    ${advisory.brief ? `<div class="advisory-brief">${advisory.brief}</div>` : ''}
+    ${flagsHtml}
+    ${specialistsHtml}
+  `;
+}
+
 // ── Full render ───────────────────────────────────────────────────────────────
 function render(data) {
   if (!data) return;
@@ -524,6 +573,7 @@ function render(data) {
   renderFeed(data.events);
   updateChart(data.equity);
   renderJournal(data.trades);
+  renderAdvisory(data.advisory);
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
