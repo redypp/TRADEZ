@@ -51,17 +51,30 @@ init_db()
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _full_payload() -> dict:
+    import json as _json
     state   = get_bot_state()
     vix     = state.get("vix") if state else None
     summary = get_daily_summary()
+
+    # Parse advisory JSON blob from bot_state if present
+    advisory = {"available": False}
+    if state:
+        raw = state.get("llm_advisory")
+        if raw:
+            try:
+                advisory = {**_json.loads(raw), "available": True}
+            except Exception:
+                pass
+
     return {
-        "state":   state,
-        "trades":  get_recent_trades(limit=30),
-        "equity":  get_equity_curve(limit=150),
-        "summary": summary,
-        "events":  get_recent_events(limit=40),
-        "regime":  get_regime_info(vix),
+        "state":    state,
+        "trades":   get_recent_trades(limit=30),
+        "equity":   get_equity_curve(limit=150),
+        "summary":  summary,
+        "events":   get_recent_events(limit=40),
+        "regime":   get_regime_info(vix),
         "settings": api_settings(),
+        "advisory": advisory,
         "server_ts": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -108,6 +121,24 @@ def api_regime():
 @app.get("/api/events")
 def api_events(limit: int = 40):
     return get_recent_events(limit=limit)
+
+
+@app.get("/api/advisory")
+def api_advisory():
+    """Return the latest AI advisory from the background LLM engine."""
+    import json as _json
+    state = get_bot_state()
+    if not state:
+        return {"available": False}
+    raw = state.get("llm_advisory")
+    if not raw:
+        return {"available": False}
+    try:
+        data = _json.loads(raw)
+        data["available"] = True
+        return data
+    except Exception:
+        return {"available": False}
 
 
 @app.get("/api/all")
