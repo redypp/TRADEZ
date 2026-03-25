@@ -87,14 +87,20 @@ VWAP_MR_SESSION_END     = getattr(settings, "VWAP_MR_SESSION_END",     15)   # 3
 VWAP_MR_MAX_ENTRIES     = getattr(settings, "VWAP_MR_MAX_ENTRIES",     2)    # max entries per direction per session
 
 
-def prepare_vwap_reversion(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_vwap_reversion(
+    df: pd.DataFrame,
+    adx_max: float = None,
+    band_multiplier: float = None,
+) -> pd.DataFrame:
     """
     Prepare intraday OHLCV data for VWAP Mean Reversion strategy.
 
     Args:
-        df : Intraday OHLCV DataFrame (5-minute bars recommended).
-             Must have columns: open, high, low, close, volume.
-             Index should be DatetimeIndex in US/Eastern timezone.
+        df              : Intraday OHLCV DataFrame (5-minute bars recommended).
+                          Must have columns: open, high, low, close, volume.
+                          Index should be DatetimeIndex in US/Eastern timezone.
+        adx_max         : Override VWAP_MR_ADX_MAX for parameter sweeps.
+        band_multiplier : Override VWAP_MR_BAND_MULTIPLIER for parameter sweeps.
 
     Returns:
         DataFrame with added columns:
@@ -111,6 +117,8 @@ def prepare_vwap_reversion(df: pd.DataFrame) -> pd.DataFrame:
             stop_loss        — stop price
             take_profit      — TP price (at VWAP)
     """
+    _adx_max         = adx_max         if adx_max         is not None else VWAP_MR_ADX_MAX
+    _band_multiplier = band_multiplier if band_multiplier is not None else VWAP_MR_BAND_MULTIPLIER
     df = df.copy()
 
     # ── Ensure we have timezone-aware index ────────────────────────────────────
@@ -136,8 +144,8 @@ def prepare_vwap_reversion(df: pd.DataFrame) -> pd.DataFrame:
         .transform(lambda x: x.rolling(20, min_periods=5).std())
         .fillna(df["close"] * 0.001)  # fallback: 0.1% of price
     )
-    df["vwap_upper"] = df["vwap"] + VWAP_MR_BAND_MULTIPLIER * df["vwap_sd"]
-    df["vwap_lower"] = df["vwap"] - VWAP_MR_BAND_MULTIPLIER * df["vwap_sd"]
+    df["vwap_upper"] = df["vwap"] + _band_multiplier * df["vwap_sd"]
+    df["vwap_lower"] = df["vwap"] - _band_multiplier * df["vwap_sd"]
 
     # ── RSI(5) ────────────────────────────────────────────────────────────────
     rsi_ind = ta.momentum.RSIIndicator(df["close"], window=VWAP_MR_RSI_PERIOD)
@@ -162,7 +170,7 @@ def prepare_vwap_reversion(df: pd.DataFrame) -> pd.DataFrame:
     df["stop_loss"]   = np.nan
     df["take_profit"] = np.nan
 
-    non_trending = df["adx"] < VWAP_MR_ADX_MAX
+    non_trending = df["adx"] < _adx_max
 
     # LONG: below lower band, bullish reversal, oversold RSI, non-trending, in session
     long_mask = (
@@ -187,13 +195,13 @@ def prepare_vwap_reversion(df: pd.DataFrame) -> pd.DataFrame:
 
     # Stop and target for longs: SL = lower_band × 1.5 below VWAP, TP = VWAP + buffer
     df.loc[long_mask, "stop_loss"]   = df.loc[long_mask, "close"] - (
-        VWAP_MR_BAND_MULTIPLIER * 1.5 * df.loc[long_mask, "vwap_sd"]
+        _band_multiplier * 1.5 * df.loc[long_mask, "vwap_sd"]
     )
     df.loc[long_mask, "take_profit"] = df.loc[long_mask, "vwap"] + VWAP_MR_TP_BUFFER
 
     # Stop and target for shorts
     df.loc[short_mask, "stop_loss"]   = df.loc[short_mask, "close"] + (
-        VWAP_MR_BAND_MULTIPLIER * 1.5 * df.loc[short_mask, "vwap_sd"]
+        _band_multiplier * 1.5 * df.loc[short_mask, "vwap_sd"]
     )
     df.loc[short_mask, "take_profit"] = df.loc[short_mask, "vwap"] - VWAP_MR_TP_BUFFER
 
