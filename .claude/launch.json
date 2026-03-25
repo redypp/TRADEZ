@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tradez-dashboard",
+      "runtimeExecutable": "/opt/homebrew/bin/uvicorn",
+      "runtimeArgs": ["web.api:app", "--port", "8000"],
+      "port": 8001
+    }
+  ]
+}

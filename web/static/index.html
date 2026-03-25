@@ -3,305 +3,553 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>TRADEZ — MES Live Dashboard</title>
+  <title>TRADEZ — MES Strategy Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="/static/style.css"/>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════════ HEADER -->
+<!-- ══════════════════════════════════════ TOPBAR -->
 <header class="topbar">
-  <div class="topbar-left">
-    <div class="logo-mark"></div>
-    <span class="brand">TRADEZ</span>
-    <span class="brand-sep">/</span>
-    <span class="brand-sub">MES Break &amp; Retest</span>
+  <div class="tb-brand">
+    <div class="tb-logo"></div>
+    <span class="tb-name">TRADEZ</span>
+    <span class="tb-ticker">MES · Break &amp; Retest</span>
   </div>
-  <div class="topbar-right">
-    <div id="conn-indicator" class="conn-dot conn-connecting" title="Connecting…"></div>
-    <span id="conn-label" class="conn-label">CONNECTING</span>
-    <div class="topbar-divider"></div>
-    <span id="mode-badge" class="mode-badge mode-paper">PAPER</span>
-    <div class="topbar-divider"></div>
-    <span class="clock" id="clock">--:--:-- ET</span>
+
+  <nav class="tb-tabs">
+    <button class="tab-btn active" data-tab="live">
+      <span class="tab-dot" id="live-dot"></span>Live
+    </button>
+    <button class="tab-btn" data-tab="strategies">Strategies</button>
+    <button class="tab-btn" data-tab="methods">Methods</button>
+  </nav>
+
+  <div class="tb-right">
+    <span id="conn-pill" class="conn-pill connecting">● CONNECTING</span>
+    <span id="mode-badge" class="mode-badge paper">PAPER</span>
+    <span id="clock" class="tb-clock">--:--:-- ET</span>
   </div>
 </header>
 
-<!-- ═══════════════════════════════════════════════════════ REGIME STRIP -->
-<div id="regime-strip" class="regime-strip">
-  <div class="regime-left">
-    <span class="regime-eyebrow">MARKET REGIME</span>
-    <span id="r-name" class="regime-name">—</span>
-  </div>
-  <div class="regime-center">
-    <span id="r-desc" class="regime-desc">Fetching market data…</span>
-    <div class="regime-macro">
-      <span class="macro-chip"><span class="macro-lbl">VIX</span> <span id="m-vix">—</span></span>
-      <span class="macro-chip"><span class="macro-lbl">10Y</span> <span id="m-yield">—</span></span>
-      <span class="macro-chip"><span class="macro-lbl">DXY</span> <span id="m-dxy">—</span></span>
-      <span class="macro-chip"><span class="macro-lbl">SPY VOL</span> <span id="m-vol">—</span></span>
+<!-- ══════════════════════════════════════ TAB: LIVE -->
+<div id="tab-live" class="tab-panel active">
+
+  <!-- Regime banner -->
+  <div id="regime-bar" class="regime-bar">
+    <div class="rb-left">
+      <span class="rb-eyebrow">ACTIVE REGIME</span>
+      <span id="rb-name" class="rb-name">—</span>
+    </div>
+    <div class="rb-center">
+      <span id="rb-desc" class="rb-desc">Awaiting data…</span>
+    </div>
+    <div class="rb-right">
+      <div class="rb-chips">
+        <div class="rb-chip"><span class="rc-lbl">VIX</span><span id="rc-vix" class="rc-val">—</span></div>
+        <div class="rb-chip"><span class="rc-lbl">10Y</span><span id="rc-yield" class="rc-val">—</span></div>
+        <div class="rb-chip"><span class="rc-lbl">DXY</span><span id="rc-dxy" class="rc-val">—</span></div>
+      </div>
+      <span id="rb-badge" class="rb-badge">—</span>
     </div>
   </div>
-  <div class="regime-right">
-    <span id="r-trade-ok" class="regime-trade-badge">—</span>
-  </div>
-</div>
 
-<!-- ═══════════════════════════════════════════════════════ MAIN -->
-<main class="main-grid">
+  <!-- Status row -->
+  <div class="live-grid">
 
-  <!-- ── Row 1: Status cards ───────────────────────────────────── -->
-  <div class="status-row">
-
-    <div class="card card-state">
-      <div class="card-eyebrow">Bot State</div>
-      <div id="s-state" class="state-badge state-neutral">
-        <span class="state-dot"></span>
-        <span id="s-state-text">NEUTRAL</span>
-      </div>
-      <div id="s-watch" class="state-watch">—</div>
-      <div id="s-next-check" class="card-meta">—</div>
-    </div>
-
-    <div class="card card-session">
-      <div class="card-eyebrow">Session</div>
-      <div id="s-session" class="metric-large text-muted">CLOSED</div>
-      <div class="card-meta">10:00 – 15:00 ET</div>
-      <div class="session-progress-wrap">
-        <div id="session-progress" class="session-progress-bar"></div>
-      </div>
-    </div>
-
-    <div class="card card-pnl">
-      <div class="card-eyebrow">Today P&amp;L</div>
-      <div id="s-pnl" class="metric-large">$—</div>
-      <div class="pnl-stats">
-        <span id="s-wins" class="pnl-wins">0W</span>
-        <span class="pnl-sep">/</span>
-        <span id="s-losses" class="pnl-losses">0L</span>
-        <span id="s-trades" class="pnl-total">&nbsp;(0 trades)</span>
+    <div class="lg-section">
+      <div class="section-label">BOT STATUS</div>
+      <div class="status-block">
+        <div class="sb-main">
+          <div id="state-pill" class="state-pill neutral">
+            <span class="sp-dot"></span>
+            <span id="state-text">NEUTRAL</span>
+          </div>
+          <div id="watch-line" class="watch-line">No active setup</div>
+        </div>
+        <div class="sb-meta">
+          <div class="sbm-row">
+            <span class="sbm-lbl">Session</span>
+            <span id="session-val" class="sbm-val">—</span>
+          </div>
+          <div class="sbm-row">
+            <span class="sbm-lbl">Next check</span>
+            <span id="next-check" class="sbm-val">—</span>
+          </div>
+          <div class="sbm-row">
+            <span class="sbm-lbl">Last update</span>
+            <span id="last-update" class="sbm-val">—</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card card-price">
-      <div class="card-eyebrow">MES Price</div>
-      <div id="s-price" class="metric-large mono">—</div>
-      <div class="price-meta">
-        <span class="price-label">EMA20</span>
-        <span id="s-ema-dist" class="price-ema-dist">—</span>
+    <div class="lg-section">
+      <div class="section-label">TODAY P&amp;L</div>
+      <div class="big-number" id="pnl-big">$—</div>
+      <div class="pnl-sub">
+        <span class="ps-wins" id="ps-wins">0W</span>
+        <span class="ps-sep">/</span>
+        <span class="ps-losses" id="ps-losses">0L</span>
+        <span class="ps-total" id="ps-total">0 trades</span>
       </div>
     </div>
 
-  </div>
-
-  <!-- ── Row 2: Indicators ─────────────────────────────────────── -->
-  <div class="indicators-row">
-
-    <div class="card ind-card">
-      <div class="ind-header">
-        <span class="card-eyebrow">ADX</span>
-        <span id="i-adx-req" class="ind-req">min —</span>
+    <div class="lg-section">
+      <div class="section-label">MES PRICE</div>
+      <div class="big-number mono" id="price-big">—</div>
+      <div class="price-detail">
+        <span class="pd-lbl">EMA20</span>
+        <span id="ema-val" class="pd-val mono">—</span>
+        <span id="ema-dist" class="pd-dist">—</span>
       </div>
-      <div class="ind-body">
-        <span id="i-adx" class="ind-value mono">—</span>
-        <span id="i-adx-status" class="ind-badge">—</span>
-      </div>
-      <div class="ind-track">
-        <div id="i-adx-fill" class="ind-fill ind-fill-blue" style="width:0%"></div>
-        <div id="i-adx-thresh" class="ind-thresh-line" style="left:33%"></div>
-      </div>
-      <div class="ind-foot">trend strength</div>
     </div>
 
-    <div class="card ind-card">
-      <div class="ind-header">
-        <span class="card-eyebrow">RSI</span>
-        <span class="ind-req">35 – 75</span>
+    <div class="lg-section">
+      <div class="section-label">INDICATORS</div>
+      <div class="ind-list">
+        <div class="il-row">
+          <span class="il-lbl">ADX</span>
+          <div class="il-bar-wrap">
+            <div class="il-bar" id="adx-bar"></div>
+            <div class="il-thresh" id="adx-thresh"></div>
+          </div>
+          <span class="il-val mono" id="adx-val">—</span>
+          <span class="il-badge" id="adx-badge">—</span>
+        </div>
+        <div class="il-row">
+          <span class="il-lbl">RSI</span>
+          <div class="il-bar-wrap">
+            <div class="il-zone"></div>
+            <div class="il-bar purple" id="rsi-bar"></div>
+          </div>
+          <span class="il-val mono" id="rsi-val">—</span>
+          <span class="il-badge" id="rsi-badge">—</span>
+        </div>
+        <div class="il-row">
+          <span class="il-lbl">ATR</span>
+          <div class="il-bar-wrap">
+            <div class="il-bar amber" id="atr-bar"></div>
+          </div>
+          <span class="il-val mono" id="atr-val">—</span>
+          <span class="il-badge neutral">pts</span>
+        </div>
       </div>
-      <div class="ind-body">
-        <span id="i-rsi" class="ind-value mono">—</span>
-        <span id="i-rsi-status" class="ind-badge">—</span>
-      </div>
-      <div class="ind-track">
-        <div class="ind-zone" style="left:35%;width:40%"></div>
-        <div id="i-rsi-fill" class="ind-fill ind-fill-purple" style="width:0%"></div>
-      </div>
-      <div class="ind-foot">momentum</div>
     </div>
 
-    <div class="card ind-card">
-      <div class="ind-header">
-        <span class="card-eyebrow">ATR (14)</span>
-      </div>
-      <div class="ind-body">
-        <span id="i-atr" class="ind-value mono">—</span>
-        <span class="ind-badge ind-badge-neutral">pts</span>
-      </div>
-      <div class="ind-track">
-        <div id="i-atr-fill" class="ind-fill ind-fill-amber" style="width:0%"></div>
-      </div>
-      <div class="ind-foot">avg true range</div>
-    </div>
+  </div><!-- /live-grid -->
 
-    <div class="card ind-card">
-      <div class="ind-header">
-        <span class="card-eyebrow">EMA 20</span>
-      </div>
-      <div class="ind-body">
-        <span id="i-ema" class="ind-value mono">—</span>
-        <span id="i-ema-trend" class="ind-badge">—</span>
-      </div>
-      <div class="ind-track">
-        <div id="i-ema-fill" class="ind-fill" style="width:50%"></div>
-      </div>
-      <div id="i-ema-foot" class="ind-foot">trend alignment</div>
-    </div>
+  <!-- Levels + Chart + Feed -->
+  <div class="live-lower">
 
-  </div>
-
-  <!-- ── Row 3: Levels + Params ────────────────────────────────── -->
-  <div class="detail-row">
-
-    <!-- Levels -->
     <div class="card levels-card">
-      <div class="levels-header">
-        <span class="card-eyebrow">KEY LEVELS</span>
-        <span class="levels-note">distance from price</span>
-      </div>
-      <div class="levels-list" id="levels-list">
-        <!-- JS renders these -->
-        <div class="level-row" id="lrow-vwap">
-          <span class="lrow-icon lrow-vwap-icon">V</span>
-          <span class="lrow-name">VWAP</span>
-          <span class="lrow-price mono" id="l-vwap">—</span>
-          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-vwap"></div></div>
-          <span class="lrow-dist" id="ld-vwap">—</span>
-        </div>
-        <div class="level-row" id="lrow-pdh">
-          <span class="lrow-icon lrow-pdh-icon">H</span>
-          <span class="lrow-name">PDH</span>
-          <span class="lrow-price mono" id="l-pdh">—</span>
-          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-pdh"></div></div>
-          <span class="lrow-dist" id="ld-pdh">—</span>
-        </div>
-        <div class="level-row" id="lrow-pdl">
-          <span class="lrow-icon lrow-pdl-icon">L</span>
-          <span class="lrow-name">PDL</span>
-          <span class="lrow-price mono" id="l-pdl">—</span>
-          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-pdl"></div></div>
-          <span class="lrow-dist" id="ld-pdl">—</span>
-        </div>
-        <div class="level-row" id="lrow-shi">
-          <span class="lrow-icon lrow-swing-icon">↑</span>
-          <span class="lrow-name">Swing Hi</span>
-          <span class="lrow-price mono" id="l-shi">—</span>
-          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-shi"></div></div>
-          <span class="lrow-dist" id="ld-shi">—</span>
-        </div>
-        <div class="level-row" id="lrow-slo">
-          <span class="lrow-icon lrow-swing-icon lrow-swing-lo">↓</span>
-          <span class="lrow-name">Swing Lo</span>
-          <span class="lrow-price mono" id="l-slo">—</span>
-          <div class="lrow-bar-wrap"><div class="lrow-bar" id="lb-slo"></div></div>
-          <span class="lrow-dist" id="ld-slo">—</span>
-        </div>
-      </div>
+      <div class="card-head">KEY LEVELS</div>
+      <table class="levels-table">
+        <thead>
+          <tr><th>Level</th><th>Price</th><th></th><th>Dist</th></tr>
+        </thead>
+        <tbody id="levels-tbody">
+          <tr><td colspan="4" class="empty-cell">Awaiting data</td></tr>
+        </tbody>
+      </table>
     </div>
-
-    <!-- Regime Params + Macro -->
-    <div class="card params-card">
-      <div class="card-eyebrow">REGIME PARAMETERS</div>
-
-      <div class="params-grid">
-        <div class="param-item">
-          <span class="param-label">ADX minimum</span>
-          <span id="p-adx" class="param-value mono">—</span>
-        </div>
-        <div class="param-item">
-          <span class="param-label">SL buffer</span>
-          <span id="p-sl" class="param-value mono">—</span>
-        </div>
-        <div class="param-item">
-          <span class="param-label">Take profit</span>
-          <span id="p-tp" class="param-value mono">—</span>
-        </div>
-        <div class="param-item">
-          <span class="param-label">Max retest bars</span>
-          <span id="p-bars" class="param-value mono">—</span>
-        </div>
-      </div>
-
-      <div class="macro-divider"></div>
-
-      <div class="card-eyebrow" style="margin-bottom:10px">MACRO CONDITIONS</div>
-      <div id="macro-list" class="macro-list">
-        <div class="macro-item text-muted">Loading…</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Row 4: Chart + Activity feed side by side ─────────────── -->
-  <div class="bottom-row">
 
     <div class="card chart-card">
-      <div class="chart-header">
-        <span class="card-eyebrow">EQUITY CURVE</span>
-        <span id="chart-pnl" class="chart-pnl">$0.00</span>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="equity-chart"></canvas>
-      </div>
+      <div class="card-head">EQUITY CURVE <span id="equity-pnl" class="eq-pnl"></span></div>
+      <div class="chart-wrap"><canvas id="equity-chart"></canvas></div>
     </div>
 
     <div class="card feed-card">
-      <div class="feed-header">
-        <span class="card-eyebrow">LIVE ACTIVITY</span>
-        <span id="feed-count" class="feed-count"></span>
-      </div>
-      <div class="feed-list" id="feed-list">
-        <div class="feed-item feed-info">
-          <span class="feed-dot"></span>
-          <span class="feed-msg text-muted">Waiting for bot activity…</span>
-        </div>
+      <div class="card-head">LIVE ACTIVITY</div>
+      <div id="feed-list" class="feed-list">
+        <div class="feed-empty">No activity yet</div>
       </div>
     </div>
 
   </div>
 
-  <!-- ── Row 5: Trade log ───────────────────────────────────────── -->
+  <!-- Trade log -->
   <div class="card trades-card">
-    <div class="trades-header">
-      <span class="card-eyebrow">TRADE LOG</span>
-      <span id="trades-count" class="trades-count"></span>
-    </div>
-    <div class="table-scroll">
-      <table class="trades-table">
+    <div class="card-head">TRADE LOG <span id="trade-count" class="card-head-count"></span></div>
+    <div class="table-wrap">
+      <table class="data-table">
         <thead>
           <tr>
-            <th>Time (UTC)</th>
-            <th>Dir</th>
-            <th>Level</th>
-            <th>Entry</th>
-            <th>Stop</th>
-            <th>Target</th>
-            <th>Exit</th>
-            <th>Reason</th>
-            <th>P&amp;L</th>
-            <th>Regime</th>
-            <th>VIX</th>
+            <th>Time</th><th>Dir</th><th>Level</th><th>Entry</th>
+            <th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th>
+            <th>P&amp;L</th><th>Regime</th><th>VIX</th>
           </tr>
         </thead>
-        <tbody id="trades-body">
-          <tr><td colspan="11" class="table-empty">No trades recorded yet</td></tr>
+        <tbody id="trades-tbody">
+          <tr><td colspan="11" class="empty-cell">No trades recorded yet</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-</main>
+</div><!-- /tab-live -->
+
+
+<!-- ══════════════════════════════════════ TAB: STRATEGIES -->
+<div id="tab-strategies" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Market Regimes</h1>
+    <p class="page-sub">The strategy adapts its parameters in real-time based on VIX. Five regimes control aggression, position sizing, and entry criteria.</p>
+  </div>
+
+  <div class="regime-grid">
+
+    <!-- TRENDING -->
+    <div class="regime-card" data-regime="TRENDING">
+      <div class="rc-header">
+        <div class="rc-color trending"></div>
+        <div>
+          <div class="rc-name">TRENDING</div>
+          <div class="rc-vix">VIX &lt; 15</div>
+        </div>
+        <div id="active-TRENDING" class="rc-active-badge" style="display:none">ACTIVE</div>
+      </div>
+      <p class="rc-desc">Low volatility, strong directional bias. Maximum aggression — tighter stops, higher R:R targets, longer retest windows.</p>
+      <div class="rc-params">
+        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div>
+        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.25 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.5R</span></div>
+        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">16</span></div>
+        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.30 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.40 × ATR</span></div>
+      </div>
+      <div class="rc-footer trending-footer">Full size · All level types</div>
+    </div>
+
+    <!-- NORMAL -->
+    <div class="regime-card" data-regime="NORMAL">
+      <div class="rc-header">
+        <div class="rc-color normal"></div>
+        <div>
+          <div class="rc-name">NORMAL</div>
+          <div class="rc-vix">VIX 15 – 20</div>
+        </div>
+        <div id="active-NORMAL" class="rc-active-badge" style="display:none">ACTIVE</div>
+      </div>
+      <p class="rc-desc">Baseline market conditions. Standard parameters — balanced between risk and opportunity. Default operating mode.</p>
+      <div class="rc-params">
+        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div>
+        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.30 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div>
+        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">14</span></div>
+        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.30 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.40 × ATR</span></div>
+      </div>
+      <div class="rc-footer normal-footer">Full size · All level types</div>
+    </div>
+
+    <!-- CAUTIOUS -->
+    <div class="regime-card" data-regime="CAUTIOUS">
+      <div class="rc-header">
+        <div class="rc-color cautious"></div>
+        <div>
+          <div class="rc-name">CAUTIOUS</div>
+          <div class="rc-vix">VIX 20 – 30</div>
+        </div>
+        <div id="active-CAUTIOUS" class="rc-active-badge" style="display:none">ACTIVE</div>
+      </div>
+      <p class="rc-desc">Elevated volatility. Stricter entry filters, wider stops to absorb noise, shorter retest windows before setup invalidates.</p>
+      <div class="rc-params">
+        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">22</span></div>
+        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.40 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div>
+        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">10</span></div>
+        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.25 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.50 × ATR</span></div>
+      </div>
+      <div class="rc-footer cautious-footer">Half size · PDH/PDL &amp; VWAP only</div>
+    </div>
+
+    <!-- HIGH_VOL -->
+    <div class="regime-card" data-regime="HIGH_VOL">
+      <div class="rc-header">
+        <div class="rc-color highvol"></div>
+        <div>
+          <div class="rc-name">HIGH VOL</div>
+          <div class="rc-vix">VIX 30 – 40</div>
+        </div>
+        <div id="active-HIGH_VOL" class="rc-active-badge" style="display:none">ACTIVE</div>
+      </div>
+      <p class="rc-desc">High fear environment. Defensive posture — minimum size, very wide stops, strongest trend confirmation required.</p>
+      <div class="rc-params">
+        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">25</span></div>
+        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.50 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">1.5R</span></div>
+        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">8</span></div>
+        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.20 × ATR</span></div>
+        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.60 × ATR</span></div>
+      </div>
+      <div class="rc-footer highvol-footer">Min size · PDH/PDL only · Long only</div>
+    </div>
+
+    <!-- NO_TRADE -->
+    <div class="regime-card" data-regime="NO_TRADE">
+      <div class="rc-header">
+        <div class="rc-color notrade"></div>
+        <div>
+          <div class="rc-name">NO TRADE</div>
+          <div class="rc-vix">VIX &gt; 40</div>
+        </div>
+        <div id="active-NO_TRADE" class="rc-active-badge" style="display:none">ACTIVE</div>
+      </div>
+      <p class="rc-desc">Extreme market stress. All trading halted — risk is unquantifiable in these conditions. Bot sits flat and monitors only.</p>
+      <div class="rc-params rc-params-blocked">
+        <div class="blocked-msg">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+          All entries blocked
+        </div>
+        <div class="rp-row muted"><span class="rp-lbl">ADX minimum</span><span class="rp-val">—</span></div>
+        <div class="rp-row muted"><span class="rp-lbl">SL buffer</span><span class="rp-val">—</span></div>
+        <div class="rp-row muted"><span class="rp-lbl">Take profit</span><span class="rp-val">—</span></div>
+        <div class="rp-row muted"><span class="rp-lbl">Max retest bars</span><span class="rp-val">—</span></div>
+      </div>
+      <div class="rc-footer notrade-footer">No trades · Monitor only</div>
+    </div>
+
+  </div><!-- /regime-grid -->
+
+  <!-- Regime comparison table -->
+  <div class="card compare-card">
+    <div class="card-head">PARAMETER COMPARISON</div>
+    <div class="table-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th class="th-trending">TRENDING<br/><span class="th-vix">VIX &lt;15</span></th>
+            <th class="th-normal">NORMAL<br/><span class="th-vix">VIX 15–20</span></th>
+            <th class="th-cautious">CAUTIOUS<br/><span class="th-vix">VIX 20–30</span></th>
+            <th class="th-highvol">HIGH VOL<br/><span class="th-vix">VIX 30–40</span></th>
+            <th class="th-notrade">NO TRADE<br/><span class="th-vix">VIX &gt;40</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>ADX minimum</td><td>20</td><td>20</td><td>22</td><td>25</td><td class="muted">—</td></tr>
+          <tr><td>SL buffer</td><td>0.25×ATR</td><td>0.30×ATR</td><td>0.40×ATR</td><td>0.50×ATR</td><td class="muted">—</td></tr>
+          <tr><td>Take profit R:R</td><td class="green">2.5R</td><td>2.0R</td><td>2.0R</td><td class="amber">1.5R</td><td class="muted">—</td></tr>
+          <tr><td>Max retest bars</td><td class="green">16</td><td>14</td><td>12</td><td class="amber">8</td><td class="muted">—</td></tr>
+          <tr><td>Level tolerance</td><td>0.30×ATR</td><td>0.30×ATR</td><td>0.25×ATR</td><td>0.20×ATR</td><td class="muted">—</td></tr>
+          <tr><td>Break body min</td><td>0.40×ATR</td><td>0.40×ATR</td><td>0.50×ATR</td><td>0.60×ATR</td><td class="muted">—</td></tr>
+          <tr><td>Position sizing</td><td class="green">Full</td><td class="green">Full</td><td class="amber">Half</td><td class="red">Min</td><td class="muted">—</td></tr>
+          <tr><td>Allowed levels</td><td>All</td><td>All</td><td>PDH/PDL + VWAP</td><td>PDH/PDL only</td><td class="muted">None</td></tr>
+          <tr><td>Direction</td><td>Long &amp; Short</td><td>Long &amp; Short</td><td>Long &amp; Short</td><td>Long only</td><td class="muted">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /tab-strategies -->
+
+
+<!-- ══════════════════════════════════════ TAB: METHODS -->
+<div id="tab-methods" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Break &amp; Retest — Signal Methods</h1>
+    <p class="page-sub">All logic runs on 15-minute MES candles. The strategy uses a state machine: NEUTRAL → WATCHING → ENTRY (or timeout back to NEUTRAL).</p>
+  </div>
+
+  <!-- State machine diagram -->
+  <div class="card statemachine-card">
+    <div class="card-head">STATE MACHINE</div>
+    <div class="sm-flow">
+      <div class="sm-state neutral-state">
+        <div class="sm-dot neutral-dot"></div>
+        <div class="sm-name">NEUTRAL</div>
+        <div class="sm-desc">Scanning all levels<br/>every 15-min bar</div>
+      </div>
+      <div class="sm-arrow">
+        <div class="sa-line"></div>
+        <div class="sa-label">break detected<br/>+ volume + body</div>
+        <div class="sa-tip">→</div>
+      </div>
+      <div class="sm-states-mid">
+        <div class="sm-state long-state">
+          <div class="sm-dot long-dot"></div>
+          <div class="sm-name">WATCHING LONG</div>
+          <div class="sm-desc">Awaiting bullish<br/>retest candle</div>
+        </div>
+        <div class="sm-state short-state">
+          <div class="sm-dot short-dot"></div>
+          <div class="sm-name">WATCHING SHORT</div>
+          <div class="sm-desc">Awaiting bearish<br/>retest candle</div>
+        </div>
+      </div>
+      <div class="sm-arrow">
+        <div class="sa-line"></div>
+        <div class="sa-label">all criteria<br/>confirmed</div>
+        <div class="sa-tip">→</div>
+      </div>
+      <div class="sm-state entry-state">
+        <div class="sm-dot entry-dot"></div>
+        <div class="sm-name">ENTRY</div>
+        <div class="sm-desc">Signal fired<br/>SL + TP set</div>
+      </div>
+      <div class="sm-arrow sm-arrow-timeout">
+        <div class="sa-line dashed"></div>
+        <div class="sa-label red-label">timeout / invalidated</div>
+        <div class="sa-tip red-tip">↩</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="methods-grid">
+
+    <!-- Level Priority -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-levels">L</div>
+        <div>
+          <div class="mc-title">Level Priority</div>
+          <div class="mc-sub">4 level types, checked in order</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item"><span class="mi-rank">1</span><div><div class="mi-name">VWAP</div><div class="mi-desc">Volume-weighted avg price · resets daily at open · highest confluence</div></div></div>
+        <div class="mc-item"><span class="mi-rank">2</span><div><div class="mi-name">PDH / PDL</div><div class="mi-desc">Previous day high &amp; low · institutional reference prices</div></div></div>
+        <div class="mc-item"><span class="mi-rank">3</span><div><div class="mi-name">ORH / ORL</div><div class="mi-desc">Opening range high &amp; low · first 30 min (9:30–10:00 ET)</div></div></div>
+        <div class="mc-item"><span class="mi-rank">4</span><div><div class="mi-name">SWING</div><div class="mi-desc">Rolling N-bar high &amp; low · dynamic support &amp; resistance</div></div></div>
+      </div>
+    </div>
+
+    <!-- Break Detection -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-break">B</div>
+        <div>
+          <div class="mc-title">Break Detection</div>
+          <div class="mc-sub">_detect_brt_signals() — all 3 must pass</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item check">
+          <div class="mi-check">✓</div>
+          <div>
+            <div class="mi-name">Candle close</div>
+            <div class="mi-desc">Close crosses level ± <code>BRT_BREAK_BUFFER × ATR</code> (regime sets break buffer)</div>
+          </div>
+        </div>
+        <div class="mc-item check">
+          <div class="mi-check">✓</div>
+          <div>
+            <div class="mi-name">Volume confirmation</div>
+            <div class="mi-desc">Volume &gt; <code>BRT_VOLUME_THRESHOLD × vol_ma(20)</code> — requires above-avg participation</div>
+          </div>
+        </div>
+        <div class="mc-item check">
+          <div class="mi-check">✓</div>
+          <div>
+            <div class="mi-name">Break candle body</div>
+            <div class="mi-desc">|close − open| &gt; <code>break_body_min × ATR</code> — no doji / indecision breaks</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Retest Criteria -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-retest">R</div>
+        <div>
+          <div class="mc-title">Retest Criteria</div>
+          <div class="mc-sub">All 6 conditions required for entry</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">In retest zone</div><div class="mi-desc">Price touches <code>[level ± tolerance × ATR]</code> — must revisit the broken level</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Candle direction</div><div class="mi-desc">Bullish (close &gt; open) for long · Bearish (open &gt; close) for short</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Close confirmation</div><div class="mi-desc">Close clearly above (long) or below (short) the broken level</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">EMA 20 alignment</div><div class="mi-desc">Long: close &gt; EMA20 &nbsp;|&nbsp; Short: close &lt; EMA20</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">ADX threshold</div><div class="mi-desc">ADX &gt; <code>adx_min</code> (regime-adaptive: 20 → 25) — confirming trend strength</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">RSI range</div><div class="mi-desc">Long: RSI 35–75 &nbsp;|&nbsp; Short: RSI 25–65 — avoids extreme overextension</div></div></div>
+      </div>
+    </div>
+
+    <!-- SL / TP -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-risk">$</div>
+        <div>
+          <div class="mc-title">Stop Loss &amp; Take Profit</div>
+          <div class="mc-sub">ATR-based, regime-adaptive sizing</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item">
+          <div class="mi-check green-check">SL</div>
+          <div>
+            <div class="mi-name">Stop Loss (Long)</div>
+            <div class="mi-desc"><code>min(candle_low, level) − sl_buffer × ATR</code></div>
+          </div>
+        </div>
+        <div class="mc-item">
+          <div class="mi-check green-check">SL</div>
+          <div>
+            <div class="mi-name">Stop Loss (Short)</div>
+            <div class="mi-desc"><code>max(candle_high, level) + sl_buffer × ATR</code></div>
+          </div>
+        </div>
+        <div class="mc-item">
+          <div class="mi-check red-check">TP</div>
+          <div>
+            <div class="mi-name">Take Profit (both)</div>
+            <div class="mi-desc"><code>entry ± (entry − stop) × tp_rr</code> · R:R is regime-adaptive (1.5R – 2.5R)</div>
+          </div>
+        </div>
+        <div class="mc-item">
+          <div class="mi-check amber-check">R</div>
+          <div>
+            <div class="mi-name">Risk per trade</div>
+            <div class="mi-desc">Contracts sized by account risk % / (entry − SL × $5/pt MES multiplier)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session Rules -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-session">T</div>
+        <div>
+          <div class="mc-title">Session Rules</div>
+          <div class="mc-sub">Time filters applied before entry</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Session window</div><div class="mi-desc">Entries only between <code>10:00 – 15:00 ET</code> · avoids open auction and late illiquidity</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Scheduler cadence</div><div class="mi-desc">Runs at <code>:02</code> past each hour · checks last completed 15-min bar</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Daily loss limit</div><div class="mi-desc">Max 2 losses per day · trading halts if daily P&amp;L &lt; −$200</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Max daily trades</div><div class="mi-desc">Max 3 trades per session · prevents overtrading in choppy tape</div></div></div>
+      </div>
+    </div>
+
+    <!-- Indicators -->
+    <div class="card method-card">
+      <div class="mc-header">
+        <div class="mc-icon icon-ind">I</div>
+        <div>
+          <div class="mc-title">Indicator Calculations</div>
+          <div class="mc-sub">prepare_break_retest() output columns</div>
+        </div>
+      </div>
+      <div class="mc-list">
+        <div class="mc-item"><div class="mi-tag">ATR</div><div><div class="mi-name">Average True Range</div><div class="mi-desc">14-period · scales all buffer calculations to current volatility</div></div></div>
+        <div class="mc-item"><div class="mi-tag">EMA</div><div><div class="mi-name">Exponential MA (20)</div><div class="mi-desc">Trend direction filter · price above = bullish bias</div></div></div>
+        <div class="mc-item"><div class="mi-tag">ADX</div><div><div class="mi-name">Avg Directional Index</div><div class="mi-desc">14-period · measures trend strength, not direction</div></div></div>
+        <div class="mc-item"><div class="mi-tag">RSI</div><div><div class="mi-name">Relative Strength Index</div><div class="mi-desc">14-period · momentum filter, keeps out extreme mean-reversion zones</div></div></div>
+        <div class="mc-item"><div class="mi-tag">VOL</div><div><div class="mi-name">Volume MA (20)</div><div class="mi-desc">20-bar rolling average · baseline for break volume confirmation</div></div></div>
+        <div class="mc-item"><div class="mi-tag">VWAP</div><div><div class="mi-name">Intraday VWAP</div><div class="mi-desc">Resets daily at market open · anchored to session cumulative vol</div></div></div>
+      </div>
+    </div>
+
+  </div><!-- /methods-grid -->
+</div><!-- /tab-methods -->
 
 <script src="/static/app.js"></script>
 </body>
