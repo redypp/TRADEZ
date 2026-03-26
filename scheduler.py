@@ -634,23 +634,23 @@ def main() -> None:
     logger.info(f"  Mode   : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
     logger.info(f"  Broker : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
     logger.info(f"  Symbol : MES  (BRT — Break & Retest, 15min)")
-    logger.info(f"  Session: 10:02 – 15:02 ET  (Mon–Fri)")
+    logger.info(f"  Session: 10:02 – 14:47 ET  (Mon–Fri, every 15min)")
     logger.info("=" * 50)
 
     scheduler = BlockingScheduler(timezone=ET)
 
-    # Hourly signal check: every :02 past the hour, 10am–3pm ET, Mon–Fri
+    # 15-min signal check: every 15 minutes, 10am–3pm ET, Mon–Fri
     scheduler.add_job(
         func    = run_signal_check,
         trigger = CronTrigger(
             day_of_week = "mon-fri",
-            hour        = "10-15",
-            minute      = "2",
+            hour        = "10-14",
+            minute      = "2,17,32,47",
             timezone    = ET,
         ),
         id        = "signal_check",
         name      = "MES B&R Signal Check",
-        misfire_grace_time = 300,   # tolerate up to 5 min late start
+        misfire_grace_time = 120,   # tolerate up to 2 min late start
     )
 
     # End-of-day summary at 15:30 ET

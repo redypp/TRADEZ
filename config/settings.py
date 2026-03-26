@@ -174,12 +174,12 @@ DONCHIAN_ATR_SL = 2.0         # Stop = 2x ATR from entry
 
 BRT_TIMEFRAME        = 15     # 15-min candles (60 days of history from yfinance)
 BRT_SWING_WINDOW     = 20     # N-bar rolling high/low for swing level detection
-BRT_LEVEL_TOLERANCE  = 0.25   # ATR fraction for retest zone width
-BRT_MAX_RETEST_BARS  = 16     # Max bars to wait for retest (16 × 15min = 4 hours)
+BRT_LEVEL_TOLERANCE  = 0.40   # ATR fraction for retest zone width
+BRT_MAX_RETEST_BARS  = 24     # Max bars to wait for retest (24 × 15min = 6 hours)
 BRT_BREAK_BUFFER     = 0.15   # ATR fraction close must exceed level to confirm break
 BRT_BREAK_BODY_MIN   = 0.20   # Break candle BODY must be >= X*ATR (lowered for 15-min bars)
-BRT_VOLUME_THRESHOLD = 1.2    # Break candle volume must be >= X * 20-bar vol avg
-BRT_ADX_MIN          = 20     # Minimum ADX — lowered to 20 for 15min (25 was 1h standard)
+BRT_VOLUME_THRESHOLD = 1.0    # Break candle volume must be >= X * 20-bar vol avg (1.0 = no filter)
+BRT_ADX_MIN          = 15     # Minimum ADX — lowered to 15 to allow moderate-trend setups
 # RSI: only block entries if RSI shows clear freefall or extreme overextension
 BRT_RSI_PERIOD       = 9      # RSI period — 9 is more responsive on 15-min than 14
                               # RSI(14) smooths over 3.5h of bars; RSI(9) reflects
@@ -200,7 +200,7 @@ BRT_VWAP_TOLERANCE   = 0.15   # ATR fraction for VWAP retest zone (tighter — V
 # Research finding: reduces entry frequency ~20%, improves win rate 5-8 percentage points.
 # On by default — it filters weak "doji-like" candles where close > open but close is
 # still in the bottom half of the bar's range (low conviction close).
-BRT_VSA_CLOSE_POSITION = True  # Enforce close in correct half of bar range
+BRT_VSA_CLOSE_POSITION = False  # Enforce close in correct half of bar range
 
 BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity sweep
                               #   LONG : low < broken_level AND close > broken_level

@@ -595,6 +595,15 @@
         </select>
       </div>
       <div class="lab-field">
+        <label class="lab-label">Timeframe</label>
+        <select id="lab-timeframe" class="lab-select">
+          <option value="5min">5 min</option>
+          <option value="15min" selected>15 min</option>
+          <option value="1h">1 hour</option>
+          <option value="1d">Daily</option>
+        </select>
+      </div>
+      <div class="lab-field">
         <label class="lab-label">Instrument</label>
         <select id="lab-symbol" class="lab-select">
           <option value="MES">MES (Micro E-mini S&amp;P)</option>
@@ -984,7 +993,7 @@
   </div>
 </div><!-- /tab-pine -->
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 
 <script>
 // ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────

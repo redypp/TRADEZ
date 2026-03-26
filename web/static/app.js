@@ -614,17 +614,45 @@ const LAB_INSTRUMENTS = {
   VWAP_MR:  ['MES', 'ES'],
 };
 
-// Update instrument options when strategy changes
+// Timeframe options per strategy (label → value)
+const LAB_TIMEFRAMES = {
+  BRT:      [['5 min', '5min'], ['15 min', '15min'], ['1 hour', '1h']],
+  ORB:      [['5 min', '5min'], ['15 min', '15min'], ['1 hour', '1h']],
+  DONCHIAN: [['Daily', '1d']],
+  RSI2:     [['Daily', '1d']],
+  VWAP_MR:  [['5 min', '5min'], ['15 min', '15min']],
+};
+
+const LAB_DEFAULT_TF = {
+  BRT: '15min', ORB: '1h', DONCHIAN: '1d', RSI2: '1d', VWAP_MR: '5min',
+};
+
+function labUpdateSelects(strat) {
+  // instruments
+  const symSel = $('lab-symbol');
+  symSel.innerHTML = (LAB_INSTRUMENTS[strat] || [])
+    .map(s => `<option value="${s}">${s}</option>`).join('');
+
+  // timeframes
+  const tfSel  = $('lab-timeframe');
+  const defTf  = LAB_DEFAULT_TF[strat] || '';
+  tfSel.innerHTML = (LAB_TIMEFRAMES[strat] || [])
+    .map(([label, val]) => `<option value="${val}"${val === defTf ? ' selected' : ''}>${label}</option>`)
+    .join('');
+}
+
+// Update dropdowns when strategy changes
 $('lab-strategy') && $('lab-strategy').addEventListener('change', () => {
-  const strat    = $('lab-strategy').value;
-  const symSel   = $('lab-symbol');
-  const options  = LAB_INSTRUMENTS[strat] || [];
-  symSel.innerHTML = options.map(s => `<option value="${s}">${s}</option>`).join('');
+  labUpdateSelects($('lab-strategy').value);
 });
+
+// Initialize dropdowns for the default strategy on page load
+$('lab-strategy') && labUpdateSelects($('lab-strategy').value);
 
 $('lab-run-btn') && $('lab-run-btn').addEventListener('click', async () => {
   const strategy  = $('lab-strategy').value;
   const symbol    = $('lab-symbol').value;
+  const timeframe = $('lab-timeframe').value;
   const capital   = parseFloat($('lab-capital').value) || 10000;
   const runMC     = $('lab-mc').checked;
 
@@ -639,7 +667,7 @@ $('lab-run-btn') && $('lab-run-btn').addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        strategy, symbol,
+        strategy, symbol, timeframe,
         initial_capital: capital,
         run_monte_carlo: runMC,
         n_mc_sims: 2000,
