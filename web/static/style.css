@@ -970,3 +970,51 @@ code {
 .srg-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
 .srg-val   { font-size: 1.15rem; font-weight: 700; color: var(--text); font-family: var(--mono); margin-bottom: 4px; }
 .srg-key   { font-size: 10px; color: var(--text3); word-break: break-all; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: PINE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.pine-how-to { margin: 0 1rem 0.75rem; padding: 1rem 1.25rem; }
+.pine-steps  { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+.ps-step     { display: flex; align-items: baseline; gap: 0.75rem; font-size: 12px; color: var(--text2); }
+.ps-num      {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--blue-bg); color: var(--blue);
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.ps-step strong { color: var(--text); }
+
+.pine-card   { margin: 0 1rem 1.5rem; padding: 0; overflow: hidden; }
+.pine-card .card-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.65rem 1rem; border-bottom: 1px solid var(--border);
+}
+.pine-version-badge {
+  font-size: 10px; font-weight: 700; padding: 1px 7px;
+  border-radius: 3px; background: var(--blue-bg); color: var(--blue);
+  letter-spacing: 0.04em;
+}
+.pine-copy-btn {
+  margin-left: auto;
+  background: var(--s3); border: 1px solid var(--border2);
+  color: var(--text2); font-size: 11px; font-weight: 600;
+  padding: 3px 12px; border-radius: 4px; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.pine-copy-btn:hover { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+.pine-copy-btn.copied { background: var(--green-bg); color: var(--green); border-color: var(--green); }
+
+.pine-pre {
+  margin: 0; padding: 1rem 1.25rem;
+  background: var(--bg);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.65;
+  color: #cdd6f4;
+  overflow-x: auto;
+  max-height: 70vh;
+  overflow-y: auto;
+  white-space: pre;
+}
+.pine-pre code { background: none; padding: 0; color: inherit; font-size: inherit; }

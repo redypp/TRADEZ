@@ -28,6 +28,7 @@
     <button class="tab-btn" data-tab="lab">Lab</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
     <button class="tab-btn" data-tab="stack">Stack</button>
+    <button class="tab-btn" data-tab="pine">Pine</button>
   </nav>
 
   <div class="tb-right">
@@ -956,6 +957,368 @@
 
 </div><!-- /tab-stack -->
 
+<!-- ══════════════════════════════════════ TAB: PINE -->
+<div id="tab-pine" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Pine Script — BRT Strategy</h1>
+    <p class="page-sub">Paste into TradingView Pine Editor. Use MES1! or ES1! on the 15-min chart. Mirrors the live Python bot logic exactly.</p>
+  </div>
+
+  <div class="pine-how-to card">
+    <div class="card-head">SETUP INSTRUCTIONS</div>
+    <div class="pine-steps">
+      <div class="ps-step"><span class="ps-num">1</span><span>Open TradingView → chart MES1! (or ES1!) → 15-min timeframe</span></div>
+      <div class="ps-step"><span class="ps-num">2</span><span>Click <strong>Pine Editor</strong> at the bottom → New Script → paste the code below</span></div>
+      <div class="ps-step"><span class="ps-num">3</span><span>Click <strong>Add to chart</strong> → open Strategy Tester → set date range to 1–2 years</span></div>
+      <div class="ps-step"><span class="ps-num">4</span><span>Tune parameters in the Settings panel (gear icon) — changes sync back to Python via <code>config/settings.py</code></span></div>
+    </div>
+  </div>
+
+  <div class="card pine-card">
+    <div class="card-head">
+      PINE SCRIPT v5
+      <span class="pine-version-badge">v5</span>
+      <button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button>
+    </div>
+    <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
+  </div>
+</div><!-- /tab-pine -->
+
 <script src="/static/app.js"></script>
+
+<script>
+// ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────
+const PINE_SCRIPT = `//@version=5
+strategy("BRT — Break & Retest (MES 15min)",
+     overlay              = true,
+     default_qty_type     = strategy.percent_of_equity,
+     default_qty_value    = 2,
+     commission_type      = strategy.commission.cash_per_contract,
+     commission_value     = 0.35,
+     initial_capital      = 10000,
+     pyramiding           = 0)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Risk
+i_tp_rr       = input.float(2.0,  "Take Profit R:R",           minval=0.5, maxval=5,  step=0.5,  group="Risk")
+i_sl_buffer   = input.float(0.30, "SL Buffer (× ATR)",         minval=0.1, maxval=2,  step=0.05, group="Risk")
+
+// Indicators
+i_atr_period  = input.int(14, "ATR Period",   minval=1, group="Indicators")
+i_ema_period  = input.int(20, "EMA Period",   minval=1, group="Indicators")
+i_adx_period  = input.int(14, "ADX Period",   minval=1, group="Indicators")
+i_rsi_period  = input.int(14, "RSI Period",   minval=1, group="Indicators")
+i_vol_ma      = input.int(20, "Volume MA",    minval=1, group="Indicators")
+i_swing_n     = input.int(10, "Swing Window", minval=3, group="Indicators")
+
+// Break detection
+i_break_buf   = input.float(0.10, "Break Buffer (× ATR)",        minval=0.0, maxval=1,  step=0.05, group="Break Detection")
+i_vol_thresh  = input.float(1.10, "Volume Threshold (× vol MA)", minval=0.5, maxval=5,  step=0.1,  group="Break Detection")
+i_break_body  = input.float(0.40, "Min Break Body (× ATR)",      minval=0.1, maxval=2,  step=0.05, group="Break Detection")
+
+// Entry filters
+i_adx_min      = input.int(20,    "ADX Minimum",            minval=1,  maxval=50,  group="Entry Filters")
+i_rsi_long_lo  = input.int(35,    "RSI Long Min",           minval=1,  maxval=50,  group="Entry Filters")
+i_rsi_long_hi  = input.int(75,    "RSI Long Max",           minval=51, maxval=99,  group="Entry Filters")
+i_rsi_short_lo = input.int(25,    "RSI Short Min",          minval=1,  maxval=50,  group="Entry Filters")
+i_rsi_short_hi = input.int(65,    "RSI Short Max",          minval=51, maxval=99,  group="Entry Filters")
+i_lev_tol      = input.float(0.30,"Level Tolerance (× ATR)",minval=0.1,maxval=1,  step=0.05, group="Entry Filters")
+i_max_retest   = input.int(14,    "Max Retest Bars",        minval=1,  maxval=50,  group="Entry Filters")
+i_require_sweep= input.bool(false,"Require Liquidity Sweep",                       group="Entry Filters")
+i_vsa_close    = input.bool(true, "VSA Close Position Filter",                     group="Entry Filters")
+i_long_only    = input.bool(true, "Long Only",                                     group="Entry Filters")
+
+// Session (ET)
+i_sess_start  = input.int(10, "Session Start Hour (ET)",    minval=0, maxval=23, group="Session")
+i_sess_end    = input.int(15, "Session End Hour (ET)",      minval=0, maxval=23, group="Session")
+i_lunch_start = input.int(12, "Lunch Blackout Start (ET)",  minval=0, maxval=23, group="Session")
+i_lunch_end   = input.int(14, "Lunch Blackout End (ET)",    minval=0, maxval=23, group="Session")
+
+// Regime (VIX-gated)
+i_use_regime  = input.bool(true,  "Use VIX Regime Engine",  group="Regime")
+i_vix_trend   = input.float(15.0, "VIX Trending threshold", group="Regime")
+i_vix_normal  = input.float(20.0, "VIX Normal threshold",   group="Regime")
+i_vix_cautious= input.float(30.0, "VIX Cautious threshold", group="Regime")
+i_vix_highvol = input.float(40.0, "VIX High Vol threshold", group="Regime")
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INDICATORS
+// ═══════════════════════════════════════════════════════════════════════════
+
+atr      = ta.atr(i_atr_period)
+ema20    = ta.ema(close, i_ema_period)
+[_, _, adx] = ta.dmi(i_adx_period, i_adx_period)
+rsi      = ta.rsi(close, i_rsi_period)
+vol_ma   = ta.sma(volume, i_vol_ma)
+vwap_val = ta.vwap(hlc3)
+swing_hi = ta.highest(high[1], i_swing_n)
+swing_lo = ta.lowest(low[1],   i_swing_n)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VIX REGIME ENGINE
+// ═══════════════════════════════════════════════════════════════════════════
+
+vix = request.security("VIX", timeframe.period, close)
+
+// 0=TRENDING  1=NORMAL  2=CAUTIOUS  3=HIGH_VOL  4=NO_TRADE
+regime = i_use_regime
+         ? (vix < i_vix_trend ? 0 : vix < i_vix_normal ? 1 : vix < i_vix_cautious ? 2 : vix < i_vix_highvol ? 3 : 4)
+         : 1
+
+adx_min = regime == 0 ? 20   : regime == 1 ? 20   : regime == 2 ? 22   : 25
+sl_buf  = regime == 0 ? 0.25 : regime == 1 ? 0.30 : regime == 2 ? 0.40 : 0.50
+tp_rr   = regime == 0 ? 2.5  : regime == 1 ? 2.0  : regime == 2 ? 2.0  : 1.5
+max_rt  = regime == 0 ? 16   : regime == 1 ? 14   : regime == 2 ? 10   : 8
+lev_tol = regime == 0 ? 0.30 : regime == 1 ? 0.30 : regime == 2 ? 0.25 : 0.20
+no_trade = regime == 4
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PDH / PDL — Previous Day High / Low
+// ═══════════════════════════════════════════════════════════════════════════
+
+is_new_day = ta.change(time("D")) != 0
+var float prev_day_high = na
+var float prev_day_low  = na
+var float _cdh = na
+var float _cdl = na
+
+if is_new_day
+    prev_day_high := _cdh
+    prev_day_low  := _cdl
+    _cdh := high
+    _cdl := low
+else
+    _cdh := math.max(nz(_cdh, high), high)
+    _cdl := math.min(nz(_cdl, low),  low)
+
+pdh = prev_day_high
+pdl = prev_day_low
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OPENING RANGE HIGH / LOW (9:30–10:00 ET)
+// ═══════════════════════════════════════════════════════════════════════════
+
+et_hour   = hour(time,   "America/New_York")
+et_minute = minute(time, "America/New_York")
+is_or_bar = (et_hour == 9 and (et_minute == 30 or et_minute == 45))
+
+var float orh = na
+var float orl = na
+var float _orh_b = na
+var float _orl_b = na
+
+if is_new_day
+    orh    := _orh_b
+    orl    := _orl_b
+    _orh_b := na
+    _orl_b := na
+
+if is_or_bar
+    _orh_b := na(_orh_b) ? high : math.max(_orh_b, high)
+    _orl_b := na(_orl_b) ? low  : math.min(_orl_b, low)
+
+if et_hour == 10 and et_minute == 0 and na(orh)
+    orh := _orh_b
+    orl := _orl_b
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EQUAL HIGHS / EQUAL LOWS — SMC Liquidity Pools (display only, not for entry)
+// ═══════════════════════════════════════════════════════════════════════════
+
+eq_tol    = 0.15 * atr
+eqh_level = (math.abs(high - high[1]) < eq_tol and math.abs(high - high[2]) < eq_tol) ? high : na
+eql_level = (math.abs(low  - low[1])  < eq_tol and math.abs(low  - low[2])  < eq_tol) ? low  : na
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FAIR VALUE GAPS (FVG) — 3-bar imbalance zones
+// ═══════════════════════════════════════════════════════════════════════════
+
+var float fvg_bull_low  = na
+var float fvg_bear_high = na
+
+if low > high[2]           // bullish FVG: gap between current low and 2-bar-ago high
+    fvg_bull_low := high[2]
+if high < low[2]           // bearish FVG: gap between current high and 2-bar-ago low
+    fvg_bear_high := low[2]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SESSION FILTER
+// ═══════════════════════════════════════════════════════════════════════════
+
+in_session = (et_hour >= i_sess_start and et_hour < i_sess_end)
+           and not (et_hour >= i_lunch_start and et_hour < i_lunch_end)
+           and not no_trade
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE MACHINE — NEUTRAL → WATCHING_LONG/SHORT → ENTRY
+// ═══════════════════════════════════════════════════════════════════════════
+
+var int   state         = 0    // 0=NEUTRAL  1=WATCHING_LONG  2=WATCHING_SHORT
+var float broken_level  = na
+var int   break_bar_idx = 0
+
+buf         = i_break_buf * atr
+tolerance   = lev_tol * atr
+vol_ok      = volume > i_vol_thresh * vol_ma or vol_ma <= 0
+break_body_l = (close - open) >= i_break_body * atr
+break_body_s = (open - close) >= i_break_body * atr
+bars_waited  = bar_index - break_bar_idx
+
+// Timeout
+if state != 0 and bars_waited > max_rt
+    state        := 0
+    broken_level := na
+
+// ─── WATCHING_LONG: scan for retest ────────────────────────────────────────
+var bool  long_signal = false
+var bool  short_signal = false
+var float entry_sl = na
+var float entry_tp = na
+
+long_signal  := false
+short_signal := false
+
+if state == 1
+    in_zone_l = low <= broken_level + tolerance and close >= broken_level - tolerance
+    if in_zone_l and in_session
+        bar_range = high - low
+        if (close > open)
+         and (close > broken_level)
+         and (close > ema20)
+         and (adx > adx_min)
+         and (rsi > i_rsi_long_lo and rsi < i_rsi_long_hi)
+         and (not i_require_sweep or (low < broken_level and close > broken_level))
+         and (not i_vsa_close or bar_range <= 0 or (close - low) / bar_range >= 0.5)
+            sl   = math.min(low - sl_buf * atr, broken_level - sl_buf * atr)
+            risk = close - sl
+            if risk > 0
+                long_signal := true
+                entry_sl    := sl
+                entry_tp    := close + tp_rr * risk
+                state       := 0
+                broken_level:= na
+    if close < broken_level - tolerance
+        state        := 0
+        broken_level := na
+
+// ─── WATCHING_SHORT: scan for retest ───────────────────────────────────────
+if state == 2
+    in_zone_s = high >= broken_level - tolerance and close <= broken_level + tolerance
+    if in_zone_s and in_session
+        bar_range = high - low
+        if (open > close)
+         and (close < broken_level)
+         and (close < ema20)
+         and (adx > adx_min)
+         and (rsi > i_rsi_short_lo and rsi < i_rsi_short_hi)
+         and (not i_require_sweep or (high > broken_level and close < broken_level))
+         and (not i_vsa_close or bar_range <= 0 or (high - close) / bar_range >= 0.5)
+            sl   = math.max(high + sl_buf * atr, broken_level + sl_buf * atr)
+            risk = sl - close
+            if risk > 0
+                short_signal := true
+                entry_sl     := sl
+                entry_tp     := close - tp_rr * risk
+                state        := 0
+                broken_level := na
+    if close > broken_level + tolerance
+        state        := 0
+        broken_level := na
+
+// ─── NEUTRAL: scan for fresh breaks (priority order) ───────────────────────
+if state == 0 and in_session
+    found = false
+
+    if not found and not na(vwap_val)
+        if close > vwap_val + buf and vol_ok and break_body_l
+            state := 1, broken_level := vwap_val, break_bar_idx := bar_index, found := true
+        if not found and not i_long_only and close < vwap_val - buf and vol_ok and break_body_s
+            state := 2, broken_level := vwap_val, break_bar_idx := bar_index, found := true
+
+    if not found and not na(pdh)
+        if close > pdh + buf and vol_ok and break_body_l
+            state := 1, broken_level := pdh, break_bar_idx := bar_index, found := true
+
+    if not found and not na(pdl) and not i_long_only
+        if close < pdl - buf and vol_ok and break_body_s
+            state := 2, broken_level := pdl, break_bar_idx := bar_index, found := true
+
+    if not found and not na(orh)
+        if close > orh + buf and vol_ok and break_body_l
+            state := 1, broken_level := orh, break_bar_idx := bar_index, found := true
+
+    if not found and not na(orl) and not i_long_only
+        if close < orl - buf and vol_ok and break_body_s
+            state := 2, broken_level := orl, break_bar_idx := bar_index, found := true
+
+    if not found and not na(swing_hi)
+        if close > swing_hi + buf and vol_ok and break_body_l
+            state := 1, broken_level := swing_hi, break_bar_idx := bar_index, found := true
+
+    if not found and not na(swing_lo) and not i_long_only
+        if close < swing_lo - buf and vol_ok and break_body_s
+            state := 2, broken_level := swing_lo, break_bar_idx := bar_index, found := true
+
+    if not found and not na(fvg_bull_low)
+        if close > fvg_bull_low + buf and vol_ok and break_body_l
+            state := 1, broken_level := fvg_bull_low, break_bar_idx := bar_index, found := true
+
+    if not found and not na(fvg_bear_high) and not i_long_only
+        if close < fvg_bear_high - buf and vol_ok and break_body_s
+            state := 2, broken_level := fvg_bear_high, break_bar_idx := bar_index, found := true
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STRATEGY ORDERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+if long_signal
+    strategy.entry("BRT Long", strategy.long)
+    strategy.exit("BRT Long Exit", "BRT Long", stop=entry_sl, limit=entry_tp)
+
+if short_signal and not i_long_only
+    strategy.entry("BRT Short", strategy.short)
+    strategy.exit("BRT Short Exit", "BRT Short", stop=entry_sl, limit=entry_tp)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PLOTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+plot(ema20,    "EMA 20",  color=color.new(color.blue,   20), linewidth=1)
+plot(vwap_val, "VWAP",   color=color.new(color.yellow,  0),  linewidth=2)
+plot(pdh,      "PDH",    color=color.new(color.green,  40),  linewidth=1, style=plot.style_linebr)
+plot(pdl,      "PDL",    color=color.new(color.red,    40),  linewidth=1, style=plot.style_linebr)
+plot(orh,      "ORH",    color=color.new(color.lime,   50),  linewidth=1, style=plot.style_linebr)
+plot(orl,      "ORL",    color=color.new(color.orange, 50),  linewidth=1, style=plot.style_linebr)
+plot(swing_hi, "Swing Hi",color=color.new(color.teal,  60),  linewidth=1, style=plot.style_linebr)
+plot(swing_lo, "Swing Lo",color=color.new(color.purple,60),  linewidth=1, style=plot.style_linebr)
+plot(eqh_level,"EQH",    color=color.new(color.orange, 20),  style=plot.style_circles, linewidth=3)
+plot(eql_level,"EQL",    color=color.new(color.orange, 20),  style=plot.style_circles, linewidth=3)
+
+plotshape(long_signal,  "Long Entry",  location.belowbar, shape.triangleup,   color.new(color.green,0), size=size.small)
+plotshape(short_signal, "Short Entry", location.abovebar, shape.triangledown, color.new(color.red,  0), size=size.small)
+
+bgcolor(state == 1 ? color.new(color.green,95) : state == 2 ? color.new(color.red,95) : na,
+        title="State Highlight")
+
+regime_name  = regime == 0 ? "TRENDING" : regime == 1 ? "NORMAL" : regime == 2 ? "CAUTIOUS" : regime == 3 ? "HIGH VOL" : "NO TRADE"
+regime_color = regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? color.yellow : regime == 3 ? color.red : color.purple
+if barstate.islast
+    label.new(bar_index + 2, high, regime_name + "\\nVIX: " + str.tostring(math.round(vix, 1)),
+              color=color.new(regime_color,70), textcolor=regime_color, style=label.style_label_left, size=size.small)`;
+
+document.getElementById('pine-code-inner').textContent = PINE_SCRIPT;
+
+function copyPine() {
+  navigator.clipboard.writeText(PINE_SCRIPT).then(() => {
+    const btn = document.getElementById('pine-copy-btn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+</script>
 </body>
 </html>
