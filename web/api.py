@@ -189,11 +189,11 @@ def api_broker_status():
 
 # All strategies available in the Lab
 LAB_STRATEGIES = {
-    "BRT":       {"name": "Break & Retest",         "instruments": ["MES", "ES"], "timeframe": "15min"},
-    "ORB":       {"name": "Opening Range Breakout",  "instruments": ["MES", "ES", "SPY", "QQQ"], "timeframe": "1h"},
-    "DONCHIAN":  {"name": "Donchian Breakout",       "instruments": ["MGC", "GC", "SIL", "SI", "MCL"], "timeframe": "1d"},
-    "RSI2":      {"name": "RSI(2) Daily",            "instruments": ["SPY", "QQQ", "IWM", "GLD"], "timeframe": "1d"},
-    "VWAP_MR":   {"name": "VWAP Mean Reversion",    "instruments": ["MES", "ES"], "timeframe": "5min"},
+    "BRT":       {"name": "Break & Retest",         "instruments": ["MES", "ES"],                   "timeframes": ["5min", "15min", "1h"], "default_tf": "15min"},
+    "ORB":       {"name": "Opening Range Breakout",  "instruments": ["MES", "ES", "SPY", "QQQ"],    "timeframes": ["5min", "15min", "1h"], "default_tf": "1h"},
+    "DONCHIAN":  {"name": "Donchian Breakout",       "instruments": ["MGC", "GC", "SIL", "SI", "MCL"], "timeframes": ["1d"],             "default_tf": "1d"},
+    "RSI2":      {"name": "RSI(2) Daily",            "instruments": ["SPY", "QQQ", "IWM", "GLD"],   "timeframes": ["1d"],                 "default_tf": "1d"},
+    "VWAP_MR":   {"name": "VWAP Mean Reversion",    "instruments": ["MES", "ES"],                   "timeframes": ["5min", "15min"],       "default_tf": "5min"},
 }
 
 # yfinance ticker map for each instrument
@@ -222,6 +222,7 @@ class LabRunRequest(BaseModel):
     initial_capital: float = 10_000.0
     run_monte_carlo: bool  = True
     n_mc_sims:       int   = 2000      # default lower for web responsiveness
+    timeframe:       str   = ""        # optional override; falls back to strategy default
 
 
 @app.get("/api/lab/strategies")
@@ -255,8 +256,18 @@ def api_lab_run(req: LabRunRequest):
             status_code=400,
         )
 
-    strat_meta = LAB_STRATEGIES[strategy]
-    tf         = strat_meta["timeframe"]
+    strat_meta   = LAB_STRATEGIES[strategy]
+    valid_tfs    = strat_meta["timeframes"]
+    requested_tf = req.timeframe.strip() if req.timeframe else ""
+    if requested_tf and requested_tf in valid_tfs:
+        tf = requested_tf
+    elif requested_tf and requested_tf not in valid_tfs:
+        return JSONResponse(
+            {"error": f"Timeframe '{requested_tf}' not supported for {strategy}. Valid options: {valid_tfs}"},
+            status_code=400,
+        )
+    else:
+        tf = strat_meta["default_tf"]
     yf_ticker  = _YF_MAP.get(symbol, symbol)
     interval   = _TF_MAP[tf]
     days       = _HISTORY_DAYS[tf]
