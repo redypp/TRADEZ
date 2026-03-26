@@ -235,6 +235,15 @@ def run_sensitivity(
             try:
                 setattr(s, param_name, type(default_val)(val))
                 bt_result = backtest_fn(df, strategy, initial_capital=capital)
+                # Engine returns raw trades/equity — must enrich with report metrics
+                # so _extract_metric() can find sharpe_ratio, win_rate, etc.
+                # Without this, all sensitivity values return 0.0 (broken gate).
+                if bt_result and bt_result.get("trades") is not None and not bt_result["trades"].empty:
+                    try:
+                        from backtest.report import generate_report
+                        bt_result.update(generate_report(bt_result, symbol=strategy))
+                    except Exception:
+                        pass
                 m_val = _extract_metric(bt_result, metric)
             except Exception as e:
                 logger.debug(f"  {param_name}={val} → error: {e}")

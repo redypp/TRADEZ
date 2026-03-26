@@ -16,7 +16,7 @@
   <div class="tb-brand">
     <div class="tb-logo"></div>
     <span class="tb-name">TRADEZ</span>
-    <span class="tb-ticker">MES · Break &amp; Retest</span>
+    <span class="tb-ticker">MES · BRT</span>
   </div>
 
   <nav class="tb-tabs">
@@ -27,6 +27,7 @@
     <button class="tab-btn" data-tab="methods">Methods</button>
     <button class="tab-btn" data-tab="lab">Lab</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
+    <button class="tab-btn" data-tab="stack">Stack</button>
   </nav>
 
   <div class="tb-right">
@@ -739,6 +740,221 @@
     <div class="journal-empty">No trades recorded yet. Trades appear here after the scheduler runs.</div>
   </div>
 </div>
+
+<!-- ══════════════════════════════════════ TAB: STACK -->
+<div id="tab-stack" class="tab-panel">
+  <div class="page-header">
+    <h1 class="page-title">Infrastructure Stack</h1>
+    <p class="page-sub">Every external dependency, API, and service the bot relies on — with status and monthly cost.</p>
+  </div>
+
+  <!-- Cost summary -->
+  <div class="stack-cost-bar">
+    <div class="scb-item">
+      <span class="scb-label">Monthly Fixed</span>
+      <span class="scb-val green">$6.00</span>
+    </div>
+    <div class="scb-sep">+</div>
+    <div class="scb-item">
+      <span class="scb-label">Variable (API usage)</span>
+      <span class="scb-val amber">~$0–5</span>
+    </div>
+    <div class="scb-sep">=</div>
+    <div class="scb-item">
+      <span class="scb-label">Total / mo</span>
+      <span class="scb-val">~$6–11</span>
+    </div>
+    <div class="scb-note">Excludes broker commissions (~$0.35/contract MES)</div>
+  </div>
+
+  <div class="stack-grid">
+
+    <!-- VPS -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-vps">VPS</div>
+        <div>
+          <div class="stack-title">DigitalOcean Droplet</div>
+          <div class="stack-subtitle">Production server · always-on</div>
+        </div>
+        <div class="stack-cost">$6<span class="sc-mo">/mo</span></div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Provider</span><span class="sr-val">DigitalOcean · NYC1</span></div>
+        <div class="sr"><span class="sr-lbl">Specs</span><span class="sr-val mono">1 vCPU · 1 GB RAM · 25 GB SSD</span></div>
+        <div class="sr"><span class="sr-lbl">OS</span><span class="sr-val">Ubuntu 24.04 LTS</span></div>
+        <div class="sr"><span class="sr-lbl">IP</span><span class="sr-val mono">137.184.48.18</span></div>
+        <div class="sr"><span class="sr-lbl">SSH key</span><span class="sr-val mono">~/.ssh/id_ed25519_tradez</span></div>
+        <div class="sr"><span class="sr-lbl">Dashboard port</span><span class="sr-val mono">:8001</span></div>
+        <div class="sr"><span class="sr-lbl">Services</span><span class="sr-val"><code>tradez-scheduler</code> + <code>tradez-dashboard</code> (systemd)</span></div>
+        <div class="sr"><span class="sr-lbl">Firewall</span><span class="sr-val">ufw · ports 22 + 8001 open</span></div>
+      </div>
+      <div class="stack-cmd-block">
+        <div class="scmd-label">SSH</div>
+        <code class="scmd-code">ssh -i ~/.ssh/id_ed25519_tradez root@137.184.48.18</code>
+      </div>
+      <div class="stack-cmd-block">
+        <div class="scmd-label">Deploy update</div>
+        <code class="scmd-code">cd /root/TRADEZ &amp;&amp; git pull origin feature/brt-mes-live-risk &amp;&amp; systemctl restart tradez-scheduler tradez-dashboard</code>
+      </div>
+    </div>
+
+    <!-- Tradovate -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-broker">BRK</div>
+        <div>
+          <div class="stack-title">Tradovate</div>
+          <div class="stack-subtitle">Futures broker · MES execution</div>
+        </div>
+        <div class="stack-cost stack-cost-var">~$0.35<span class="sc-mo">/contract</span></div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Instrument</span><span class="sr-val">MES (Micro E-mini S&amp;P 500)</span></div>
+        <div class="sr"><span class="sr-lbl">Tick value</span><span class="sr-val mono">$1.25/tick · $5/point</span></div>
+        <div class="sr"><span class="sr-lbl">Margin (intraday)</span><span class="sr-val mono">~$40–50/contract</span></div>
+        <div class="sr"><span class="sr-lbl">Auth method</span><span class="sr-val">OAuth2 access token (REST)</span></div>
+        <div class="sr"><span class="sr-lbl">Base URL</span><span class="sr-val mono">demo.tradovateapi.com / live.tradovateapi.com</span></div>
+        <div class="sr"><span class="sr-lbl">Status</span><span id="stack-broker-status" class="sr-val amber">⚠ Credentials not set</span></div>
+        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">TRADOVATE_USERNAME, PASSWORD, APP_ID, CID, SECRET</span></div>
+      </div>
+      <div class="stack-tag-row">
+        <span class="stag stag-amber">PAPER MODE ACTIVE</span>
+        <span class="stag stag-blue">REST + Polling</span>
+      </div>
+    </div>
+
+    <!-- Market Data -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-data">DATA</div>
+        <div>
+          <div class="stack-title">yfinance (Yahoo Finance)</div>
+          <div class="stack-subtitle">OHLCV bars · indicators · macro data</div>
+        </div>
+        <div class="stack-cost stack-cost-free">FREE</div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Used for</span><span class="sr-val">MES 15-min bars, VIX, DXY, 10Y yield, SPY (backtest)</span></div>
+        <div class="sr"><span class="sr-lbl">Lookback limit</span><span class="sr-val">60 days for intraday · unlimited for daily</span></div>
+        <div class="sr"><span class="sr-lbl">Rate limit</span><span class="sr-val">~2,000 req/hr (unofficial)</span></div>
+        <div class="sr"><span class="sr-lbl">Ticker map</span><span class="sr-val mono">MES → ES=F · MGC → GC=F · VIX → ^VIX · DXY → DX-Y.NYB</span></div>
+        <div class="sr"><span class="sr-lbl">Install</span><span class="sr-val mono">pip install yfinance</span></div>
+      </div>
+      <div class="stack-tag-row">
+        <span class="stag stag-green">No API key required</span>
+        <span class="stag stag-amber">60d intraday limit</span>
+      </div>
+    </div>
+
+    <!-- Telegram -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-tg">TG</div>
+        <div>
+          <div class="stack-title">Telegram Bot API</div>
+          <div class="stack-subtitle">Trade alerts · regime changes · errors</div>
+        </div>
+        <div class="stack-cost stack-cost-free">FREE</div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Bot name</span><span class="sr-val">Created via @BotFather</span></div>
+        <div class="sr"><span class="sr-lbl">Triggers</span><span class="sr-val">Entry signal, SL hit, TP hit, regime change, daily summary, errors</span></div>
+        <div class="sr"><span class="sr-lbl">Method</span><span class="sr-val mono">POST /bot{token}/sendMessage</span></div>
+        <div class="sr"><span class="sr-lbl">Status</span><span class="sr-val green">✓ Configured (token + chat ID set)</span></div>
+        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">TELEGRAM_TOKEN, TELEGRAM_CHAT_ID</span></div>
+      </div>
+      <div class="stack-tag-row">
+        <span class="stag stag-green">Active</span>
+        <span class="stag stag-blue">HTTP polling</span>
+      </div>
+    </div>
+
+    <!-- LLM / AI Advisory -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-llm">AI</div>
+        <div>
+          <div class="stack-title">LLM Advisory (OpenAI / Anthropic)</div>
+          <div class="stack-subtitle">Pre-market regime commentary</div>
+        </div>
+        <div class="stack-cost stack-cost-var">~$0–3<span class="sc-mo">/mo</span></div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Fires at</span><span class="sr-val">9:55 ET pre-market + each signal check</span></div>
+        <div class="sr"><span class="sr-lbl">Input</span><span class="sr-val">VIX, ADX, RSI, ATR, regime, VPOC migration, levels</span></div>
+        <div class="sr"><span class="sr-lbl">Output</span><span class="sr-val">Natural-language commentary shown in Live → AI Advisory panel</span></div>
+        <div class="sr"><span class="sr-lbl">Model</span><span class="sr-val mono">gpt-4o-mini or claude-haiku (configurable)</span></div>
+        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">OPENAI_API_KEY or ANTHROPIC_API_KEY</span></div>
+        <div class="sr"><span class="sr-lbl">Fallback</span><span class="sr-val">Advisory silently disabled if no key set</span></div>
+      </div>
+      <div class="stack-tag-row">
+        <span class="stag stag-amber">Optional</span>
+        <span class="stag stag-blue">~5–15 calls/day</span>
+      </div>
+    </div>
+
+    <!-- GitHub -->
+    <div class="card stack-card">
+      <div class="stack-card-head">
+        <div class="stack-icon si-gh">GH</div>
+        <div>
+          <div class="stack-title">GitHub</div>
+          <div class="stack-subtitle">Source control · VPS deploy pipeline</div>
+        </div>
+        <div class="stack-cost stack-cost-free">FREE</div>
+      </div>
+      <div class="stack-rows">
+        <div class="sr"><span class="sr-lbl">Repo</span><span class="sr-val mono">github.com/redypp/TRADEZ</span></div>
+        <div class="sr"><span class="sr-lbl">Active branch</span><span class="sr-val mono">feature/brt-mes-live-risk</span></div>
+        <div class="sr"><span class="sr-lbl">Deploy flow</span><span class="sr-val">Push from Mac → git pull on VPS → systemctl restart</span></div>
+        <div class="sr"><span class="sr-lbl">VPS auth</span><span class="sr-val">SSH key (ed25519) added to GitHub deploy keys</span></div>
+      </div>
+      <div class="stack-tag-row">
+        <span class="stag stag-green">Active</span>
+      </div>
+    </div>
+
+  </div><!-- /stack-grid -->
+
+  <!-- Risk config snapshot -->
+  <div class="card stack-risk-card">
+    <div class="card-head">RISK CONFIGURATION <span class="card-head-sub">(from .env)</span></div>
+    <div class="stack-risk-grid">
+      <div class="srg-item">
+        <div class="srg-label">Risk per trade</div>
+        <div class="srg-val green">2.0%</div>
+        <div class="srg-key mono">RISK_PER_TRADE=0.02</div>
+      </div>
+      <div class="srg-item">
+        <div class="srg-label">Max daily drawdown</div>
+        <div class="srg-val amber">10.0%</div>
+        <div class="srg-key mono">MAX_DAILY_DRAWDOWN=0.10</div>
+      </div>
+      <div class="srg-item">
+        <div class="srg-label">Max trades / day</div>
+        <div class="srg-val">3</div>
+        <div class="srg-key mono">hardcoded in scheduler</div>
+      </div>
+      <div class="srg-item">
+        <div class="srg-label">Max losses / day</div>
+        <div class="srg-val">2</div>
+        <div class="srg-key mono">hardcoded in scheduler</div>
+      </div>
+      <div class="srg-item">
+        <div class="srg-label">Session window</div>
+        <div class="srg-val">10:00 – 15:00 ET</div>
+        <div class="srg-key mono">Mon–Fri · hourly :02</div>
+      </div>
+      <div class="srg-item">
+        <div class="srg-label">Lunch blackout</div>
+        <div class="srg-val">12:00 – 14:00 ET</div>
+        <div class="srg-key mono">NY_LUNCH_AVOID=True</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /tab-stack -->
 
 <script src="/static/app.js"></script>
 </body>

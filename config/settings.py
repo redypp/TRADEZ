@@ -1,7 +1,8 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent / ".env", override=True)
 
 # IBKR Connection (via TWS or IB Gateway) — not used if broker=Tradovate
 IBKR_HOST = os.getenv("IBKR_HOST", "127.0.0.1")
@@ -21,10 +22,28 @@ TRADOVATE_SEC         = os.getenv("TRADOVATE_SEC", "")
 ALPACA_API_KEY    = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 
-# ── Multi-LLM Strategy Selector ───────────────────────────────────────────
-# Set LLM_SELECTOR_ENABLED=true in .env to activate the AI strategy selection layer.
-# When disabled, the rule-based BRT → ORB fallback runs as before.
+# ── Multi-LLM Advisory & Strategy Selector ────────────────────────────────
+# Two independent feature flags:
+#
+# LLM_ADVISORY_ENABLED — Background market intelligence (Grok + GPT-4 + Claude).
+#   Logs to SQLite and sends Telegram on SIGNAL/PRE_MARKET triggers.
+#   NEVER blocks execution. Recommended: enable first to build advisory track record.
+#   Set LLM_ADVISORY_ENABLED=true in .env.
+#
+# LLM_SELECTOR_ENABLED — AI strategy selection layer (overrides rule-based routing).
+#   Only activate after advisory has been running for 50+ trades.
+#   When disabled, rule-based BRT runs as normal.
+#   Set LLM_SELECTOR_ENABLED=true in .env.
+LLM_ADVISORY_ENABLED = os.getenv("LLM_ADVISORY_ENABLED", "false").lower() == "true"
 LLM_SELECTOR_ENABLED = os.getenv("LLM_SELECTOR_ENABLED", "false").lower() == "true"
+
+# ── COT Filter ─────────────────────────────────────────────────────────────
+# CFTC Commitment of Traders weekly directional bias filter.
+# For MES: if Leveraged Funds are at extreme net long (contrarian SHORT signal),
+#   long entries are blocked for the week.
+# For commodities (MGC, SIL): blocks entries against commercial positioning extremes.
+# Data cached locally for 48h. Returns NEUTRAL if fetch fails (never hard-blocks).
+COT_FILTER_ENABLED = os.getenv("COT_FILTER_ENABLED", "true").lower() == "true"
 
 # Claude (Anthropic) — orchestrator: receives all specialist inputs, makes final call
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -41,6 +60,22 @@ LLM_MIN_CONFIDENCE = float(os.getenv("LLM_MIN_CONFIDENCE", "0.60"))
 # Trading mode
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 
+# ── Equity fallback ────────────────────────────────────────────────────────────
+# If the broker API fails to return account equity, the bot needs to know what
+# to do. Two options, controlled by EQUITY_FALLBACK in .env:
+#
+#   EQUITY_FALLBACK=0 (default) — HALT the tick. No equity confirmed = no trade.
+#       Safest option. The hourly job simply skips and retries next tick.
+#
+#   EQUITY_FALLBACK=10000 — Use this value as emergency fallback equity.
+#       Use ONLY if you know your account balance and accept the risk of trading
+#       on a stale/estimated equity figure. Set to YOUR actual account size.
+#       Example: EQUITY_FALLBACK=5000 for a $5,000 account.
+#
+# Never leave this at 3000 (old hardcoded value) if your account is larger —
+# it would undersize every trade and break the risk model.
+EQUITY_FALLBACK = float(os.getenv("EQUITY_FALLBACK", "0"))
+
 # Contracts and strategy assignment
 SYMBOLS = os.getenv("SYMBOLS", "MES,MGC").split(",")
 EXCHANGE = os.getenv("EXCHANGE", "CME")
@@ -56,6 +91,30 @@ SYMBOL_STRATEGY = {
     "MGC": "DONCHIAN",
     "SIL": "DONCHIAN",
 }
+
+# ── Algo trading robustness controls ──────────────────────────────────────────
+
+# Maximum trades per day (hard cap to prevent churn on choppy days)
+# A BRT strategy should fire 1-3 signals on a good day, not 10+.
+# If this cap is hit, it's a signal the market is choppy — stop, don't force trades.
+MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "5"))
+
+# Absolute equity floor — halt all trading if account falls below this level.
+# Prevents a runaway losing streak from wiping the account entirely.
+# Set to your "I quit for the month" threshold. 0 = disabled.
+# Example: $5,000 account → set floor at $4,000 (20% max account drawdown).
+EQUITY_FLOOR = float(os.getenv("EQUITY_FLOOR", "0"))
+
+# Slippage stress multiplier for backtesting robustness checks.
+# BRT_COST_PER_RT × this factor = stressed round-trip cost.
+# Run backtest at 2.0x (normal stress) and 3.0x (worst-case) to verify edge survives.
+# Research: at 3x cost, edges below ~1.5 profit factor break even or go negative.
+SLIPPAGE_STRESS_FACTOR = float(os.getenv("SLIPPAGE_STRESS_FACTOR", "1.0"))  # 1.0 = no stress
+
+# Time-based sizing reduction: reduce position size after BRT_LATE_SESSION_HOUR ET.
+# Liquidity thins after ~14:30 ET. Slippage increases. Smaller size = same dollar risk.
+BRT_LATE_SESSION_HOUR        = 14   # After this hour ET, apply late-session size factor
+BRT_LATE_SESSION_SIZE_FACTOR = 0.75  # 75% of normal size after 14:30 ET
 
 # Risk
 # 1% per trade: enough to grow the account, small enough to survive a losing streak.
@@ -122,6 +181,9 @@ BRT_BREAK_BODY_MIN   = 0.20   # Break candle BODY must be >= X*ATR (lowered for 
 BRT_VOLUME_THRESHOLD = 1.2    # Break candle volume must be >= X * 20-bar vol avg
 BRT_ADX_MIN          = 20     # Minimum ADX — lowered to 20 for 15min (25 was 1h standard)
 # RSI: only block entries if RSI shows clear freefall or extreme overextension
+BRT_RSI_PERIOD       = 9      # RSI period — 9 is more responsive on 15-min than 14
+                              # RSI(14) smooths over 3.5h of bars; RSI(9) reflects
+                              # current momentum better for intraday confirmation.
 BRT_RSI_LONG_MIN     = 35     # RSI floor: skip if price in freefall
 BRT_RSI_LONG_MAX     = 75     # RSI ceiling: skip if severely overextended
 BRT_RSI_SHORT_MIN    = 25     # RSI floor for shorts
@@ -145,6 +207,35 @@ BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity swe
                               #   SHORT: high > broken_level AND close < broken_level
                               # SMC validation: stop-hunt before reversal = institutional confirmation.
                               # Leave False during initial paper trading; enable once 50+ trades logged.
+
+# ── Level-specific ADX adjustments ───────────────────────────────────────────
+# Different level types have different trend requirements at confirmation.
+# Adjustments are applied as DELTAS on top of the regime-adaptive adx_min base.
+#   VWAP:  -5  — VWAP mean-reverts in ranging markets; lower ADX OK
+#   PDH/PDL/ORH/ORL/VP: 0 — default, use regime base
+#   SWING: +2  — swing levels are less institutionally validated; need more trend
+#   FVG:   +2  — FVGs are already lowest-priority; extra trend filter reduces noise
+# Example: NORMAL regime (adx_min=20) → VWAP threshold=15, SWING threshold=22.
+# Floor: never below 12 (ADX <12 = pure noise regardless of level type).
+BRT_ADX_DELTA_VWAP   = -5   # VWAP works with less trend (mean-reversion tendency)
+BRT_ADX_DELTA_SWING  = +2   # Swing needs slightly more trend confidence
+BRT_ADX_DELTA_FVG    = +2   # FVG — weakest level type, extra filter
+BRT_ADX_FLOOR        = 12   # Absolute minimum ADX — below this is noise
+
+# ── Breakeven stop management ──────────────────────────────────────────────────
+# Move stop to breakeven (entry price) once trade reaches 1:1 R:R profit.
+# Prevents a winner from becoming a full loser. Checked each hourly tick.
+# Requires Tradovate order modification via router.modify_stop(symbol, new_stop).
+BRT_BREAKEVEN_AT_1R  = True
+
+# ── Drawdown recovery — step-down position sizing ─────────────────────────────
+# After N consecutive losses, trade at a reduced risk fraction until recovered.
+# Recovery defined as: 1 winning trade resets the streak counter.
+# Example: 2 losses in a row → trade at 50% normal risk on the next setup.
+#   $10K account, 1% risk = $100/trade → during step-down = $50/trade.
+# This prevents a bad streak from cascading into a session-ending drawdown.
+BRT_LOSING_STREAK_MAX         = 2    # Trigger step-down after N consecutive losses
+BRT_LOSING_STREAK_RISK_FACTOR = 0.5  # Trade at X fraction of normal risk when triggered
 
 # VSA no-demand volume filter on retest entry candle
 # Research: MICROSTRUCTURE_RESEARCH.md § VSA — "no demand" bar = low vol + narrow spread + weak close
@@ -216,7 +307,11 @@ BRT_SESSION_END_HOUR   = 15   # Latest entry hour (ET) — skip last 30 min
 #   choppy whipsaw price action. NY PM session resumes ~13:30–14:00.
 #   We skip 12:00–13:59 (conservative) to avoid the entire dead zone.
 BRT_LUNCH_START_HOUR   = 12   # Avoid entries from 12:00 ET
-BRT_LUNCH_END_HOUR     = 14   # Resume entries from 14:00 ET (conservative vs. 13:30)
+BRT_LUNCH_END_HOUR     = 13   # Resume entries from 13:00 ET
+                              # Narrowed from 14:00 — skipping 12:00-14:00 was losing 2 of 5
+                              # trading hours. VWAP retests and ORH/PDH retests set up at 1 PM.
+                              # 12:00-13:00 = true dead zone (NY lunch, no institutional flow).
+                              # 13:00+ = institutions re-engage for the PM session.
 
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.

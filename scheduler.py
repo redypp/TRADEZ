@@ -38,11 +38,17 @@ from config import settings
 from data.fetcher import fetch_historical
 from data.fundamentals import get_live_fundamentals, print_fundamentals
 from data.trade_log import init_db, log_trade, log_event, update_bot_state, get_daily_summary
+from data.validator import validate_ohlcv, DataQualityError, data_quality_summary
 from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
 from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
-from strategy.orb import get_orb_signal_15min
-from risk.manager import RiskBlock, check_all, check_daily_drawdown
+from risk.manager import (
+    RiskBlock, check_all, check_daily_drawdown,
+    load_open_trades_from_db, clear_stale_open_trades, check_breakeven_moves,
+    record_trade_outcome,
+)
+from strategy.cot_filter import get_cot_bias, COT_BIAS_SHORT
+from monitor.performance import brt_monitor
 from execution.router import router as _router
 from monitor.alerts import (
     notify_signal_check,
@@ -133,22 +139,76 @@ def _run_advisory(market_ctx: dict, strategy_id: str,
 
 # ─── Tradovate helpers ────────────────────────────────────────────────────────
 
-def _ensure_auth() -> None:
-    """Authenticate all brokers (token auto-renews if near expiry)."""
-    _router.connect_all()
+def _ensure_auth(max_attempts: int = 3) -> None:
+    """
+    Authenticate all brokers with exponential backoff retry.
+    Retries up to max_attempts times before raising.
+    Without retry, a single auth failure at :02 past the hour blocks the entire hour.
+    """
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            _router.connect_all()
+            if attempt > 1:
+                logger.info(f"Auth succeeded on attempt {attempt}")
+            return
+        except Exception as e:
+            last_err = e
+            wait = 2 ** attempt  # 2s, 4s, 8s
+            logger.warning(
+                f"Auth attempt {attempt}/{max_attempts} failed: {e}. "
+                f"Retrying in {wait}s…"
+            )
+            time.sleep(wait)
+    raise ConnectionError(f"Auth failed after {max_attempts} attempts: {last_err}")
 
 
 def _safe_get_equity() -> float:
-    """Return Tradovate account equity, defaulting to $3,000 if API returns 0."""
+    """
+    Return confirmed account equity from Tradovate.
+
+    If the API returns 0 or raises, behaviour depends on EQUITY_FALLBACK in .env:
+        EQUITY_FALLBACK=0 (default) — raises EquityUnavailable, halting the tick.
+            No trade is placed without confirmed equity. Safe by default.
+        EQUITY_FALLBACK=<amount>    — uses that value as emergency fallback.
+            Only set this if you know your account balance and accept the risk.
+
+    Raises:
+        EquityUnavailable if equity cannot be confirmed and no fallback is set.
+    """
     try:
         equity = _router.get_broker_for("MES").get_account_equity()
-        if equity <= 0:
-            logger.warning("Account equity returned 0 — defaulting to $3,000")
-            return 3000.0
-        return equity
+        if equity > 0:
+            return equity
+        # API returned 0 — treat same as failure
+        raise ValueError("Broker returned equity of 0")
     except Exception as e:
-        logger.warning(f"Could not fetch equity: {e} — defaulting to $3,000")
-        return 3000.0
+        fallback = settings.EQUITY_FALLBACK
+        if fallback > 0:
+            logger.warning(
+                f"Could not confirm equity ({e}). "
+                f"Using configured fallback: ${fallback:,.2f}. "
+                f"Risk calculations are based on this figure."
+            )
+            try:
+                notify_error(
+                    f"⚠️ Equity fetch failed — trading on fallback ${fallback:,.2f}. "
+                    f"Verify account balance immediately."
+                )
+            except Exception:
+                pass
+            return fallback
+        # No fallback configured — halt this tick entirely
+        raise EquityUnavailable(
+            f"Cannot confirm account equity ({e}). "
+            f"Set EQUITY_FALLBACK in .env to allow trading on estimated balance, "
+            f"or this tick will be skipped to protect the risk model."
+        ) from e
+
+
+class EquityUnavailable(Exception):
+    """Raised when account equity cannot be confirmed and no fallback is configured."""
+    pass
 
 
 # ─── Daily session initialiser ────────────────────────────────────────────────
@@ -221,24 +281,29 @@ def run_signal_check() -> None:
         open_position = _router.get_position("MES")
         logger.info(f"Open MES position: {open_position:+d} contracts")
 
-        # ── Price data (regime params injected into strategy) ─────────────
+        # ── Price data (with data quality validation) ─────────────────────
         df = fetch_historical("MES", period="60d", timeframe_minutes=15)
+
+        # Validate data before running signal engine.
+        # Bad ticks or stale data can generate false signals on corrupted bars.
+        try:
+            validate_ohlcv(df, timeframe_minutes=15)
+        except DataQualityError as dqe:
+            logger.warning(f"Data quality check failed — skipping tick: {dqe}")
+            try:
+                log_event("Data quality check failed — tick skipped", "WARN", str(dqe))
+            except Exception:
+                pass
+            return  # skip this tick entirely — don't trade on bad data
+
         df = prepare_break_retest(df, long_only=True, regime_params=regime_params)
 
-        # ── Strategy signals (B&R priority; ORB fallback) ─────────────
-        brt_signal    = get_latest_brt_signal(df)
-        orb_signal    = get_orb_signal_15min(df)
+        # ── Strategy signals (pure BRT) ───────────────────────────────
+        brt_signal     = get_latest_brt_signal(df)
         vpoc_migration = vpoc_trend(df)  # "RISING" / "FALLING" / "NEUTRAL"
 
-        if brt_signal.get("signal", 0) != 0:
-            signal      = brt_signal
-            strategy_id = "BRT"
-        elif orb_signal.get("signal", 0) != 0:
-            signal      = orb_signal
-            strategy_id = "ORB"
-        else:
-            signal      = brt_signal   # flat — used for Telegram summary
-            strategy_id = "FLAT"
+        signal      = brt_signal
+        strategy_id = "BRT" if brt_signal.get("signal", 0) != 0 else "FLAT"
 
         logger.info(
             f"[{strategy_id}] Signal={signal.get('signal', 0):+d}  "
@@ -296,7 +361,10 @@ def run_signal_check() -> None:
         notify_signal_check(signal, fundamentals)
 
         # ── AI Advisory (background thread — never delays execution) ────────
-        if settings.LLM_SELECTOR_ENABLED:
+        # Uses LLM_ADVISORY_ENABLED (separate from LLM_SELECTOR_ENABLED).
+        # Advisory runs for market intelligence + logging regardless of whether
+        # the strategy selector is active. Decoupled intentionally.
+        if settings.LLM_ADVISORY_ENABLED:
             _market_ctx = {
                 "close":         brt_signal.get("close"),
                 "ema20":         brt_signal.get("ema20"),
@@ -324,76 +392,138 @@ def run_signal_check() -> None:
                 daemon=True,
             ).start()
 
+        # ── Breakeven stop management (checked each tick before new entries) ─
+        try:
+            live_prices = {"MES": float(signal.get("close", 0))}
+            check_breakeven_moves(live_prices, _router)
+        except Exception as be_err:
+            logger.debug(f"Breakeven check skipped: {be_err}")
+
+        # ── COT directional bias filter ────────────────────────────────────
+        cot_bias = "NEUTRAL"
+        if settings.COT_FILTER_ENABLED:
+            try:
+                cot_bias = get_cot_bias("MES")
+                if cot_bias != "NEUTRAL":
+                    logger.info(f"COT bias: {cot_bias}")
+            except Exception as cot_err:
+                logger.debug(f"COT fetch failed (non-fatal, defaulting NEUTRAL): {cot_err}")
+                cot_bias = "NEUTRAL"
+
         # ── Entry logic ───────────────────────────────────────────────────
         if signal.get("signal", 0) != 0:
-            try:
-                contracts = check_all(fundamentals, equity, open_position, signal)
-
-                direction  = int(signal["signal"])   # 1 = long, -1 = short
-                entry_price = float(signal["close"])
-                sl_price    = float(signal["stop_loss"])
-                tp_price    = float(signal["take_profit"])
-                level_type  = signal.get("level_type", "")
-                retest_lvl  = float(signal.get("retest_level", entry_price))
-                sweep_flag  = signal.get("liquidity_sweep", 0)
-
+            # COT filter: block long entries when Leveraged Funds at extreme net long
+            # (contrarian SHORT signal — they are the last buyer, not the first).
+            if signal.get("signal", 0) == 1 and cot_bias == COT_BIAS_SHORT:
                 logger.info(
-                    f"Placing {'LONG' if direction == 1 else 'SHORT'} bracket "
-                    f"x{contracts} | entry≈{entry_price:.2f} "
-                    f"SL={sl_price:.2f} TP={tp_price:.2f}"
-                    f"{'  [SWEEP ✓]' if sweep_flag else ''}"
+                    "COT filter: LONG entry blocked — Leveraged Funds at extreme net long "
+                    "(contrarian short signal). Waiting for COT to normalize."
                 )
-
-                _router.place_bracket_order(
-                    symbol    = "MES",
-                    qty       = contracts,
-                    sl_price  = sl_price,
-                    tp_price  = tp_price,
-                    direction = direction,
-                )
-
-                # Log activity event
                 try:
                     log_event(
-                        f"{'LONG' if direction == 1 else 'SHORT'} entry — {level_type} @ {entry_price:.2f}",
-                        "TRADE",
-                        f"SL {sl_price:.2f} | TP {tp_price:.2f} | {contracts} contract(s)"
+                        "COT filter blocked LONG entry", "WARN",
+                        "Leveraged Funds at extreme net long — contrarian short bias"
                     )
-                except Exception: pass
-
-                # Log trade to SQLite
+                except Exception:
+                    pass
+            else:
                 try:
-                    log_trade(
-                        direction        = "LONG" if direction == 1 else "SHORT",
-                        level_type       = level_type,
-                        entry_price      = entry_price,
-                        stop_loss        = sl_price,
-                        take_profit      = tp_price,
-                        contracts        = contracts,
-                        regime           = regime_info.get("regime"),
-                        vix              = fundamentals.get("vix"),
-                        liquidity_sweep  = int(sweep_flag),
+                    # Pre-entry performance gate — pause if rolling metrics in PAUSE state
+                    perf_status = brt_monitor.get_status()
+                    if perf_status == "PAUSE":
+                        raise RiskBlock(
+                            f"Performance monitor: new entries paused. "
+                            f"Rolling win rate has been below threshold for sustained period. "
+                            f"Review rolling metrics before resuming."
+                        )
+
+                    # FIX: check_all signature is (symbol, fundamentals, equity, position, signal)
+                    contracts = check_all(
+                        "MES", fundamentals, equity, open_position, signal,
+                        trades_today=_session["trades_today"],
                     )
-                except Exception as db_err:
-                    logger.warning(f"Trade log write failed (non-fatal): {db_err}")
 
-                # Update session counters (P&L filled in by exit logic, see below)
-                _session["trades_today"] += 1
+                    direction   = int(signal["signal"])
+                    entry_price = float(signal["close"])
+                    sl_price    = float(signal["stop_loss"])
+                    tp_price    = float(signal["take_profit"])
+                    level_type  = signal.get("level_type", "")
+                    retest_lvl  = float(signal.get("retest_level", entry_price))
+                    sweep_flag  = signal.get("liquidity_sweep", 0)
 
-                notify_entry(
-                    contracts    = contracts,
-                    entry_price  = entry_price,
-                    sl_price     = sl_price,
-                    tp_price     = tp_price,
-                    level_type   = level_type,
-                    retest_level = retest_lvl,
-                )
+                    logger.info(
+                        f"Placing {'LONG' if direction == 1 else 'SHORT'} bracket "
+                        f"x{contracts} | entry≈{entry_price:.2f} "
+                        f"SL={sl_price:.2f} TP={tp_price:.2f}"
+                        f"  COT={cot_bias}"
+                        f"{'  [SWEEP ✓]' if sweep_flag else ''}"
+                    )
 
-            except RiskBlock as rb:
-                logger.warning(f"Risk block: {rb}")
-                notify_risk_block(str(rb))
-                try: log_event(f"Risk block: {rb}", "WARN")
-                except Exception: pass
+                    _router.place_bracket_order(
+                        symbol    = "MES",
+                        qty       = contracts,
+                        sl_price  = sl_price,
+                        tp_price  = tp_price,
+                        direction = direction,
+                    )
+
+                    # Log activity event
+                    try:
+                        log_event(
+                            f"{'LONG' if direction == 1 else 'SHORT'} entry — "
+                            f"{level_type} @ {entry_price:.2f}",
+                            "TRADE",
+                            f"SL {sl_price:.2f} | TP {tp_price:.2f} | "
+                            f"{contracts} contract(s) | COT={cot_bias}",
+                        )
+                    except Exception:
+                        pass
+
+                    # Log trade to SQLite (includes cot_bias for attribution analysis)
+                    try:
+                        log_trade(
+                            direction       = "LONG" if direction == 1 else "SHORT",
+                            level_type      = level_type,
+                            entry_price     = entry_price,
+                            stop_loss       = sl_price,
+                            take_profit     = tp_price,
+                            contracts       = contracts,
+                            regime          = regime_info.get("regime"),
+                            vix             = fundamentals.get("vix"),
+                            liquidity_sweep = int(sweep_flag),
+                            cot_bias        = cot_bias,
+                        )
+                    except Exception as db_err:
+                        logger.warning(f"Trade log write failed (non-fatal): {db_err}")
+
+                    # Update session counters
+                    _session["trades_today"] += 1
+
+                    notify_entry(
+                        contracts    = contracts,
+                        entry_price  = entry_price,
+                        sl_price     = sl_price,
+                        tp_price     = tp_price,
+                        level_type   = level_type,
+                        retest_level = retest_lvl,
+                    )
+
+                except RiskBlock as rb:
+                    logger.warning(f"Risk block: {rb}")
+                    notify_risk_block(str(rb))
+                    try:
+                        log_event(f"Risk block: {rb}", "WARN")
+                    except Exception:
+                        pass
+
+    except EquityUnavailable as eu:
+        # Equity could not be confirmed — skip this tick, do not trade.
+        # This is intentional behaviour, not an error. Next tick will retry.
+        logger.warning(f"Tick skipped — equity unavailable: {eu}")
+        try:
+            log_event("Tick skipped — equity unavailable", "WARN", str(eu))
+        except Exception:
+            pass
 
     except RiskBlock as rb:
         # Daily drawdown limit hit — block for the rest of the session
@@ -491,11 +621,19 @@ def run_premarket_briefing() -> None:
 def main() -> None:
     init_db()  # ensure SQLite tables exist before scheduler fires
 
+    # Restore open trade registry from SQLite (crash recovery).
+    # If the process restarted mid-trade, OPEN_TRADES would otherwise be empty
+    # and risk/sizing checks would behave as if we're flat when we're not.
+    try:
+        load_open_trades_from_db()
+    except Exception as e:
+        logger.warning(f"Could not restore open trades on startup: {e}")
+
     logger.info("=" * 50)
     logger.info("  TRADEZ — Automated Paper Trading Bot")
     logger.info(f"  Mode   : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
     logger.info(f"  Broker : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
-    logger.info(f"  Symbol : MES  (Break & Retest, 15min)")
+    logger.info(f"  Symbol : MES  (BRT — Break & Retest, 15min)")
     logger.info(f"  Session: 10:02 – 15:02 ET  (Mon–Fri)")
     logger.info("=" * 50)
 
@@ -529,7 +667,7 @@ def main() -> None:
     )
 
     # Pre-market AI briefing at 9:55 ET (before first signal check)
-    if settings.LLM_SELECTOR_ENABLED:
+    if settings.LLM_ADVISORY_ENABLED:
         scheduler.add_job(
             func    = run_premarket_briefing,
             trigger = CronTrigger(
@@ -545,7 +683,8 @@ def main() -> None:
     logger.info("Scheduler started. Press Ctrl-C to stop.")
     logger.info("Next signal check jobs:")
     for job in scheduler.get_jobs():
-        logger.info(f"  [{job.id}]  next run: {job.next_run_time}")
+        next_run = getattr(job, 'next_run_time', None) or getattr(job, '_get_run_times', None)
+        logger.info(f"  [{job.id}]  {job.name}")
 
     try:
         scheduler.start()

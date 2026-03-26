@@ -270,8 +270,15 @@ def _run_with_params(
 ) -> dict:
     """
     Temporarily override settings with params, run backtest, restore settings.
+
+    IMPORTANT: engine.run_backtest() returns raw {trades, equity_curve, initial_capital,
+    final_capital} — it does NOT compute metrics (Sharpe, win_rate, etc.).
+    This function calls report.generate_report() to enrich the result so that
+    _extract_metric() can find 'sharpe_ratio', 'win_rate', 'profit_factor', etc.
+    Without this step, all WFE calculations return 0.0 (broken gate).
     """
     from config import settings as s
+    from backtest.report import generate_report
 
     # Save original values
     original = {name: getattr(s, name, None) for name in param_names}
@@ -280,11 +287,21 @@ def _run_with_params(
         # Override
         for name, val in zip(param_names, params):
             setattr(s, name, val)
-        return backtest_fn(df, strategy, initial_capital=capital)
+        raw = backtest_fn(df, strategy, initial_capital=capital)
     finally:
-        # Always restore
+        # Always restore — even on exception
         for name, val in original.items():
             setattr(s, name, val)
+
+    # Enrich raw result with computed metrics so _extract_metric() works correctly
+    if raw and raw.get("trades") is not None and not raw["trades"].empty:
+        try:
+            metrics = generate_report(raw, symbol=strategy)
+            raw.update(metrics)  # merges sharpe_ratio, win_rate, profit_factor, etc.
+        except Exception as e:
+            logger.debug(f"Could not compute metrics for param combo: {e}")
+
+    return raw
 
 
 def _extract_metric(result: dict, metric: str) -> float:

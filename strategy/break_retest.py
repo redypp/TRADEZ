@@ -55,6 +55,35 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper: Level-specific ADX minimum threshold
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Per-level ADX adjustments (delta applied on top of regime-adaptive base).
+# See config/settings.py BRT_ADX_DELTA_* for rationale.
+_LEVEL_ADX_DELTAS: dict[str, int] = {
+    "VWAP":   settings.BRT_ADX_DELTA_VWAP,   # -5: VWAP works in ranging markets
+    "SWING":  settings.BRT_ADX_DELTA_SWING,  # +2: swing needs stronger trend
+    "FVG":    settings.BRT_ADX_DELTA_FVG,    # +2: FVG is lowest-confidence level
+}
+
+
+def _level_adx_min(level_type: str, base_adx_min: float) -> float:
+    """
+    Return the effective ADX minimum for a given level type.
+
+    Applies a per-level delta on top of the regime-adaptive base, then
+    clamps to BRT_ADX_FLOOR so we never trade pure noise.
+
+    Examples (NORMAL regime, base=20):
+        VWAP  → max(12, 20 - 5) = 15   (VWAP retests OK in moderate chop)
+        PDH   → max(12, 20 + 0) = 20   (default)
+        SWING → max(12, 20 + 2) = 22   (needs cleaner trend)
+    """
+    delta = _LEVEL_ADX_DELTAS.get(level_type, 0)
+    return max(settings.BRT_ADX_FLOOR, base_adx_min + delta)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Helper: Previous Day High / Low
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -238,7 +267,8 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                     #   1. Bullish candle (close > open) with meaningful body
                     #   2. Close is clearly ABOVE the broken level (not just in zone)
                     #   3. EMA20 trend alignment
-                    #   4. ADX shows active trend (>= adx_min from regime)
+                    #   4. ADX >= level-specific minimum (regime base ± level delta)
+                    #      VWAP allows lower ADX; SWING/FVG require higher ADX.
                     #   5. RSI in healthy range (not freefall, not overbought)
                     #   6. Liquidity sweep (optional): wick below level, close above
                     #      Confirms institutional stop hunt before the reversal.
@@ -246,7 +276,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                     bullish_body  = candle_body > 0
                     close_above   = row["close"] > broken_level
                     ema_ok        = row["close"] > row["ema20"]
-                    adx_ok        = row["adx"] > adx_min
+                    adx_ok        = row["adx"] > _level_adx_min(broken_ltype, adx_min)
                     rsi_ok        = (settings.BRT_RSI_LONG_MIN < row["rsi"] < settings.BRT_RSI_LONG_MAX)
                     # Sweep: wick dipped below the level, close recovered above it
                     sweep_ok      = (not settings.BRT_REQUIRE_SWEEP or
@@ -301,7 +331,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
                     bearish_body  = candle_body > 0
                     close_below   = row["close"] < broken_level
                     ema_ok        = row["close"] < row["ema20"]
-                    adx_ok        = row["adx"] > adx_min
+                    adx_ok        = row["adx"] > _level_adx_min(broken_ltype, adx_min)
                     rsi_ok        = (settings.BRT_RSI_SHORT_MIN < row["rsi"] < settings.BRT_RSI_SHORT_MAX)
                     # Sweep: wick spiked above the level, close dropped back below it
                     sweep_ok      = (not settings.BRT_REQUIRE_SWEEP or
@@ -381,15 +411,18 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
             if "prior_val" in df.columns and pd.notna(row.get("prior_val")) and not long_only:
                 levels.append(("VP_VAL", float(row["prior_val"]), "short"))
 
-            # Equal Highs/Lows — dense stop clusters (academically validated liquidity pools)
-            # Research: ResearchGate 2024 (EUR/USD PDH/PDL sweeps), Osler 2005 (stop cascades)
-            if "eqh" in df.columns and pd.notna(row.get("eqh")):
-                levels.append(("EQH", float(row["eqh"]), "short"))   # buy-side liquidity above
-            if "eql" in df.columns and pd.notna(row.get("eql")) and not long_only:
-                levels.append(("EQL", float(row["eql"]), "long"))    # sell-side liquidity below
+            # Equal Highs/Lows — NOT used as break/retest entry levels.
+            # EQH/EQL are SMC liquidity pools (stop clusters). They are TARGETS
+            # for stop-hunt runs, not reliable S/R zones to trade from.
+            # Conceptually: price tends to run TO EQH/EQL to grab stops, then reverse.
+            # Using them as break/retest entries puts you on the wrong side of that move.
+            # They remain in the DataFrame (eqh, eql columns) for use as exit targets
+            # and in the dashboard — just not eligible for entry signal generation.
+            # Research: Osler 2005 (stop cascades), ResearchGate 2024 (PDH/PDL sweeps).
 
-            # FVG levels — Fair Value Gap boundaries as S/R zones
-            # Research: >60% of FVGs NEVER fill (Edgeful); use as S/R, not fill targets
+            # FVG levels — Fair Value Gap boundaries as S/R zones (lowest priority)
+            # Research: >60% of FVGs NEVER fill (Edgeful); use as S/R, not fill targets.
+            # Extra ADX filter applied at confirmation (see _level_adx_min for FVG delta).
             if "fvg_bull_low" in df.columns and pd.notna(row.get("fvg_bull_low")):
                 levels.append(("FVG", float(row["fvg_bull_low"]), "long"))
             if "fvg_bear_high" in df.columns and pd.notna(row.get("fvg_bear_high")) and not long_only:
@@ -472,7 +505,7 @@ def prepare_break_retest(df: pd.DataFrame, long_only: bool = True,
     )
     df["adx"] = adx_ind.adx()
 
-    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=settings.BRT_RSI_PERIOD).rsi()
 
     df["vol_ma"] = df["volume"].rolling(20).mean()
 

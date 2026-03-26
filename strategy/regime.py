@@ -18,6 +18,26 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ─── Regime Hysteresis ────────────────────────────────────────────────────────
+# Prevents rapid regime flipping when VIX oscillates near a boundary.
+# Example: VIX oscillating 19.8 / 20.2 / 19.9 would flip NORMAL ↔ CAUTIOUS
+# every hour, changing ADX/SL/TP parameters constantly — choppy and unreliable.
+#
+# Solution: a new regime is only adopted after it appears for 2 consecutive ticks.
+# The current confirmed regime is held until the new regime is stable.
+#
+# Research basis: Momentum in regime transitions — requiring confirmation before
+# acting reduces false regime switches at the cost of 1-tick lag. This is the
+# same logic as requiring a confirmation candle in break/retest entries.
+
+_hysteresis: dict = {
+    "confirmed_regime": None,   # currently active regime (used for params)
+    "candidate_regime": None,   # regime seen last tick (pending confirmation)
+    "candidate_count":  0,      # consecutive ticks in candidate regime
+    "ticks_required":   2,      # must appear this many consecutive ticks to confirm
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Regime parameter table
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +71,7 @@ REGIME_PARAMS: dict[str, dict | None] = {
     "CAUTIOUS": {
         "adx_min":         25,
         "sl_buffer":       0.40,
-        "tp_rr":           1.5,
+        "tp_rr":           1.75,
         "max_retest_bars": 10,
         "level_tolerance": 0.20,
         "break_body_min":  0.30,
@@ -97,7 +117,10 @@ REGIME_COLORS: dict[str, str] = {
 
 def classify_regime(vix: float | None) -> str:
     """
-    Classify market regime from current VIX level.
+    Classify market regime from current VIX level, with hysteresis.
+
+    A new regime is only adopted after it appears on 2 consecutive ticks.
+    This prevents hourly parameter churn when VIX oscillates near a boundary.
 
     Args:
         vix: Current VIX index value (None = treat as NORMAL)
@@ -107,21 +130,67 @@ def classify_regime(vix: float | None) -> str:
     """
     if vix is None:
         logger.warning("VIX unavailable — defaulting to NORMAL regime")
-        return "NORMAL"
+        return _hysteresis["confirmed_regime"] or "NORMAL"
 
+    # Raw regime from VIX level (before hysteresis)
     if vix > 40:
-        regime = "NO_TRADE"
+        raw_regime = "NO_TRADE"
     elif vix > 30:
-        regime = "HIGH_VOL"
+        raw_regime = "HIGH_VOL"
     elif vix > 20:
-        regime = "CAUTIOUS"
+        raw_regime = "CAUTIOUS"
     elif vix > 15:
-        regime = "NORMAL"
+        raw_regime = "NORMAL"
     else:
-        regime = "TRENDING"
+        raw_regime = "TRENDING"
 
-    logger.info(f"Regime: {regime}  (VIX={vix:.1f}) — {REGIME_DESCRIPTIONS[regime]}")
-    return regime
+    # NO_TRADE is always immediate — never delay an extreme-fear block
+    if raw_regime == "NO_TRADE":
+        _hysteresis["confirmed_regime"] = "NO_TRADE"
+        _hysteresis["candidate_regime"] = None
+        _hysteresis["candidate_count"]  = 0
+        logger.info(f"Regime: NO_TRADE (immediate — VIX={vix:.1f})")
+        return "NO_TRADE"
+
+    # Hysteresis: confirm the new regime if it matches the candidate
+    if raw_regime == _hysteresis["confirmed_regime"]:
+        # Still in the same regime — reset any pending candidate
+        _hysteresis["candidate_regime"] = None
+        _hysteresis["candidate_count"]  = 0
+    elif raw_regime == _hysteresis["candidate_regime"]:
+        # New regime seen again — increment counter
+        _hysteresis["candidate_count"] += 1
+        if _hysteresis["candidate_count"] >= _hysteresis["ticks_required"]:
+            old = _hysteresis["confirmed_regime"]
+            _hysteresis["confirmed_regime"] = raw_regime
+            _hysteresis["candidate_regime"] = None
+            _hysteresis["candidate_count"]  = 0
+            logger.info(
+                f"Regime confirmed: {old} → {raw_regime}  "
+                f"(VIX={vix:.1f}, appeared {_hysteresis['ticks_required']} consecutive ticks)"
+            )
+        else:
+            logger.debug(
+                f"Regime candidate: {raw_regime}  "
+                f"({_hysteresis['candidate_count']}/{_hysteresis['ticks_required']} ticks, "
+                f"current confirmed: {_hysteresis['confirmed_regime']})"
+            )
+    else:
+        # New candidate — start counting
+        _hysteresis["candidate_regime"] = raw_regime
+        _hysteresis["candidate_count"]  = 1
+        logger.debug(
+            f"Regime candidate started: {raw_regime}  "
+            f"(current: {_hysteresis['confirmed_regime']}, VIX={vix:.1f})"
+        )
+
+    # Use confirmed regime; fall back to raw if no confirmed regime yet (first tick)
+    confirmed = _hysteresis["confirmed_regime"] or raw_regime
+    if _hysteresis["confirmed_regime"] is None:
+        _hysteresis["confirmed_regime"] = raw_regime
+
+    logger.info(f"Regime: {confirmed}  (VIX={vix:.1f}) — {REGIME_DESCRIPTIONS[confirmed]}")
+    return confirmed
 
 
 def get_regime_params(vix: float | None) -> dict | None:
