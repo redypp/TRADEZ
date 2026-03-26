@@ -24,7 +24,7 @@
 //   • Top-right table — Live indicator values + current state
 // ═══════════════════════════════════════════════════════════════════════════
 
-//@version=5
+//@version=6
 strategy("MES Break and Retest", shorttitle="MES BRT", overlay=true, initial_capital=3000, default_qty_type=strategy.fixed, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=0.85, slippage=2, currency=currency.USD, calc_on_every_tick=false, max_bars_back=1000)
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,8 +80,8 @@ vol_ma              = ta.sma(volume, 20)
 // PDH / PDL  (previous completed day's high/low)
 // request.security with [1] on Daily = yesterday's value, no lookahead bias
 // ─────────────────────────────────────────────────────────────────────────────
-pdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
-pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead=barmerge.lookahead_on)
+pdh = request.security(syminfo.tickerid, "D", high[1])
+pdl = request.security(syminfo.tickerid, "D", low[1])
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SWING LEVELS  (N-bar rolling high/low, shifted 1 bar to avoid lookahead)
@@ -172,7 +172,7 @@ if brt_state == "WATCHING_LONG"
                 // Dynamic position sizing: risk_pct of equity / (risk × point value)
                 // MES point value = $5; change to 50 if using ES1!
                 _point_val = syminfo.pointvalue
-                _contracts = math.max(1, int(strategy.equity * (risk_pct / 100) / (_risk * _point_val)))
+                _contracts = math.max(1, math.floor(strategy.equity * (risk_pct / 100) / (_risk * _point_val)))
 
                 strategy.entry(
                     id      = "B&R Long",
