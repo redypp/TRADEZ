@@ -976,8 +976,8 @@
 
   <div class="card pine-card">
     <div class="card-head">
-      PINE SCRIPT v5
-      <span class="pine-version-badge">v5</span>
+      PINE SCRIPT v6
+      <span class="pine-version-badge">v6</span>
       <button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button>
     </div>
     <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
@@ -988,7 +988,7 @@
 
 <script>
 // ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────
-const PINE_SCRIPT = `//@version=5
+const PINE_SCRIPT = `//@version=6
 strategy("BRT — Break & Retest (MES 15min)",
      overlay              = true,
      default_qty_type     = strategy.percent_of_equity,
@@ -1297,11 +1297,10 @@ plot(swing_lo, "Swing Lo",color=color.new(color.purple,60),  linewidth=1, style=
 plot(eqh_level,"EQH",    color=color.new(color.orange, 20),  style=plot.style_circles, linewidth=3)
 plot(eql_level,"EQL",    color=color.new(color.orange, 20),  style=plot.style_circles, linewidth=3)
 
-plotshape(long_signal,  "Long Entry",  location.belowbar, shape.triangleup,   color.new(color.green,0), size=size.small)
-plotshape(short_signal, "Short Entry", location.abovebar, shape.triangledown, color.new(color.red,  0), size=size.small)
+plotshape(long_signal,  "Long Entry",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green,0), size=size.small)
+plotshape(short_signal, "Short Entry", style=shape.triangledown, location=location.abovebar, color=color.new(color.red,  0), size=size.small)
 
-bgcolor(state == 1 ? color.new(color.green,95) : state == 2 ? color.new(color.red,95) : na,
-        title="State Highlight")
+bgcolor(state == 1 ? color.new(color.green,95) : state == 2 ? color.new(color.red,95) : na, title="State Highlight")
 
 regime_name  = regime == 0 ? "TRENDING" : regime == 1 ? "NORMAL" : regime == 2 ? "CAUTIOUS" : regime == 3 ? "HIGH VOL" : "NO TRADE"
 regime_color = regime == 0 ? color.green : regime == 1 ? color.blue : regime == 2 ? color.yellow : regime == 3 ? color.red : color.purple
@@ -1312,12 +1311,27 @@ if barstate.islast
 document.getElementById('pine-code-inner').textContent = PINE_SCRIPT;
 
 function copyPine() {
-  navigator.clipboard.writeText(PINE_SCRIPT).then(() => {
-    const btn = document.getElementById('pine-copy-btn');
+  const btn = document.getElementById('pine-copy-btn');
+  function onSuccess() {
     btn.textContent = 'Copied!';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-  });
+  }
+  function onFail() {
+    // Fallback: select the text in the pre element
+    const el = document.getElementById('pine-code-inner');
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    try { document.execCommand('copy'); onSuccess(); } catch(e) { btn.textContent = 'Select All ↑'; }
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(PINE_SCRIPT).then(onSuccess).catch(onFail);
+  } else {
+    onFail();
+  }
 }
 </script>
 </body>
