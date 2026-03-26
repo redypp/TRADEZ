@@ -1,0 +1,2 @@
+entry_time,exit_time,direction,entry_price,exit_price,stop_loss,take_profit,retest_level,level_type,contracts,raw_pnl,costs,pnl,result,capital_after
+2026-02-25 10:45:00-05:00,2026-02-25 13:00:00-05:00,LONG,6937.0,6955.44,6927.78,6955.44,6929.939168806524,VWAP,1,92.2,2.4,89.8,TP,3089.8
