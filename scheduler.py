@@ -40,6 +40,7 @@ from data.fundamentals import get_live_fundamentals, print_fundamentals
 from data.trade_log import init_db, log_trade, log_event, update_bot_state, get_daily_summary
 from data.validator import validate_ohlcv, DataQualityError, data_quality_summary
 from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
+from strategy.vwap_reversion import prepare_vwap_reversion, get_latest_vwap_mr_signal
 from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
 from risk.manager import (
@@ -53,6 +54,7 @@ from execution.router import router as _router
 from monitor.alerts import (
     notify_signal_check,
     notify_brt_signal,
+    notify_vwap_signal,
     notify_entry,
     notify_exit,
     notify_risk_block,
@@ -299,7 +301,7 @@ def run_signal_check() -> None:
 
         df = prepare_break_retest(df, long_only=True, regime_params=regime_params)
 
-        # ── Strategy signals (pure BRT) ───────────────────────────────
+        # ── Strategy signals ──────────────────────────────────────────
         brt_signal     = get_latest_brt_signal(df)
         vpoc_migration = vpoc_trend(df)  # "RISING" / "FALLING" / "NEUTRAL"
 
@@ -309,6 +311,20 @@ def run_signal_check() -> None:
         # ── Telegram: fire immediately on any BRT signal (pre-execution) ──────
         if strategy_id == "BRT":
             notify_brt_signal(brt_signal)
+
+        # ── VWAP MR signal check (parallel, dry-run alert only) ───────────────
+        try:
+            df_vwap      = prepare_vwap_reversion(df.copy())
+            vwap_signal  = get_latest_vwap_mr_signal(df_vwap)
+            if vwap_signal.get("signal", 0) != 0:
+                notify_vwap_signal(vwap_signal)
+                logger.info(
+                    f"[VWAP_MR] Signal={vwap_signal['signal']:+d}  "
+                    f"ADX={vwap_signal['adx']:.1f}  RSI5={vwap_signal['rsi5']:.1f}  "
+                    f"Close={vwap_signal['close']:.2f}"
+                )
+        except Exception as vwap_err:
+            logger.warning(f"VWAP_MR signal check failed (non-fatal): {vwap_err}")
 
         logger.info(
             f"[{strategy_id}] Signal={signal.get('signal', 0):+d}  "

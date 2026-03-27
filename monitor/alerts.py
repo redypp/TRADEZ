@@ -168,6 +168,46 @@ def notify_brt_signal(signal: dict) -> None:
     logger.info(f"BRT signal alert sent: {direction} @ {entry:.2f} | {level_type}")
 
 
+def notify_vwap_signal(signal: dict) -> None:
+    """Fire immediately when VWAP_MR detects a valid entry signal (before execution).
+
+    Fires regardless of whether Tradovate credentials are set — useful for
+    dry-run validation while waiting for credentials.
+    """
+    sig = signal.get("signal", 0)
+    if sig == 0:
+        return
+
+    direction  = {1: "LONG", -1: "SHORT"}.get(sig, "FLAT")
+    icon       = "📈" if sig == 1 else "📉"
+    ts         = datetime.now().strftime("%H:%M ET")
+    entry      = signal.get("close", 0)
+    sl         = signal.get("stop_loss") or 0
+    tp         = signal.get("take_profit") or 0
+    vwap       = signal.get("vwap", 0)
+    vwap_upper = signal.get("vwap_upper", 0)
+    vwap_lower = signal.get("vwap_lower", 0)
+    rsi5       = signal.get("rsi5", 0)
+    adx        = signal.get("adx", 0)
+
+    risk_pts   = round(abs(entry - sl), 2) if sl else 0
+    reward_pts = round(abs(tp - entry), 2) if tp else 0
+    rr         = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
+    dev_pct    = round((entry - vwap) / vwap * 100, 2) if vwap else 0
+
+    msg = (
+        f"{icon} <b>VWAP MR SIGNAL: MES {direction} — {ts}</b>\n"
+        f"Entry    : {entry:.2f}  (dev {dev_pct:+.2f}% from VWAP)\n"
+        f"VWAP     : {vwap:.2f}  [{vwap_lower:.2f} – {vwap_upper:.2f}]\n"
+        f"SL / TP  : {sl:.2f} / {tp:.2f}  ({rr}:1 R:R)\n"
+        f"Risk     : {risk_pts} pts\n"
+        f"ADX      : {adx:.1f}  |  RSI5: {rsi5:.1f}\n"
+        f"<i>⏸ No execution (credentials pending)</i>"
+    )
+    _send(msg)
+    logger.info(f"VWAP MR signal alert sent: {direction} @ {entry:.2f} | dev {dev_pct:+.2f}%")
+
+
 def notify_risk_block(reason: str) -> None:
     """Send alert when a trade is blocked by risk manager."""
     ts  = datetime.now().strftime("%H:%M ET")
