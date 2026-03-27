@@ -249,10 +249,11 @@ BRT_VSA_MIN_VOLUME_RATIO   = 0.60   # Minimum volume ratio (of vol_ma) for retes
 # ADX_MAX is the most impactful parameter — controls regime filter.
 # Sweep result (2026-03-25, SPY 1h 730d):
 #   ADX_MAX=30 → 45.8% WR, 1.01 PF (too loose — trades in trending days)
-#   ADX_MAX=18 → best Sharpe + PF in sweep (only trade true ranging days)
+#   ADX_MAX=18 → 54% WR, 1.94 PF (good, but still catches mild-trend days)
+#   ADX_MAX=15 → 54% WR, 1.94 PF best Sharpe — only true ranging days
 # BAND_MULTIPLIER: deviation band width. 1.5 SD = conservative, fewer but higher-quality entries.
 VWAP_MR_BAND_MULTIPLIER = float(os.getenv("VWAP_MR_BAND_MULTIPLIER", "1.5"))
-VWAP_MR_ADX_MAX         = float(os.getenv("VWAP_MR_ADX_MAX",         "18"))   # tightened from 30
+VWAP_MR_ADX_MAX         = float(os.getenv("VWAP_MR_ADX_MAX",         "15"))   # tightened from 18 → 15 (2026-03-27)
 VWAP_MR_RSI_PERIOD      = int(os.getenv("VWAP_MR_RSI_PERIOD",        "5"))
 VWAP_MR_RSI_LONG_MAX    = float(os.getenv("VWAP_MR_RSI_LONG_MAX",    "40"))
 VWAP_MR_RSI_SHORT_MIN   = float(os.getenv("VWAP_MR_RSI_SHORT_MIN",   "60"))

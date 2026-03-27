@@ -52,6 +52,7 @@ from monitor.performance import brt_monitor
 from execution.router import router as _router
 from monitor.alerts import (
     notify_signal_check,
+    notify_brt_signal,
     notify_entry,
     notify_exit,
     notify_risk_block,
@@ -304,6 +305,10 @@ def run_signal_check() -> None:
 
         signal      = brt_signal
         strategy_id = "BRT" if brt_signal.get("signal", 0) != 0 else "FLAT"
+
+        # ── Telegram: fire immediately on any BRT signal (pre-execution) ──────
+        if strategy_id == "BRT":
+            notify_brt_signal(brt_signal)
 
         logger.info(
             f"[{strategy_id}] Signal={signal.get('signal', 0):+d}  "

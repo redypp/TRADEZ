@@ -126,6 +126,48 @@ def notify_exit(
     logger.info(f"EXIT alert sent: {reason} | P&L ${pnl:+.2f}")
 
 
+def notify_brt_signal(signal: dict) -> None:
+    """Fire immediately when BRT detects a valid entry signal (before execution).
+
+    This fires regardless of whether credentials are set — useful for dry-run
+    validation while waiting for Tradovate credentials.
+    """
+    sig       = signal.get("signal", 0)
+    direction = {1: "LONG", -1: "SHORT"}.get(sig, "FLAT")
+    if sig == 0:
+        return
+
+    ts         = datetime.now().strftime("%H:%M ET")
+    icon       = "📈" if sig == 1 else "📉"
+    entry      = signal.get("close", 0)
+    sl         = signal.get("stop_loss", 0)
+    tp         = signal.get("take_profit", 0)
+    level_type = signal.get("level_type", "?")
+    retest_lvl = signal.get("retest_level", 0)
+    sweep      = signal.get("liquidity_sweep", 0)
+    adx        = signal.get("adx", 0)
+    rsi        = signal.get("rsi", 0)
+    atr        = signal.get("atr", 0)
+
+    risk_pts   = round(abs(entry - sl), 2) if sl else 0
+    reward_pts = round(abs(tp - entry), 2) if tp else 0
+    rr         = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
+
+    sweep_tag  = "  ✅ Liquidity sweep" if sweep else ""
+
+    msg = (
+        f"{icon} <b>BRT SIGNAL: MES {direction} — {ts}</b>\n"
+        f"Level    : {level_type} @ {retest_lvl:.2f}{sweep_tag}\n"
+        f"Entry    : {entry:.2f}\n"
+        f"SL / TP  : {sl:.2f} / {tp:.2f}  ({rr}:1 R:R)\n"
+        f"Risk     : {risk_pts} pts  |  ATR: {atr:.2f}\n"
+        f"ADX      : {adx:.1f}  |  RSI: {rsi:.1f}\n"
+        f"<i>⏸ No execution (credentials pending)</i>"
+    )
+    _send(msg)
+    logger.info(f"BRT signal alert sent: {direction} @ {entry:.2f} | {level_type}")
+
+
 def notify_risk_block(reason: str) -> None:
     """Send alert when a trade is blocked by risk manager."""
     ts  = datetime.now().strftime("%H:%M ET")
