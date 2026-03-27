@@ -174,20 +174,20 @@ DONCHIAN_ATR_SL = 2.0         # Stop = 2x ATR from entry
 
 BRT_TIMEFRAME        = 15     # 15-min candles (60 days of history from yfinance)
 BRT_SWING_WINDOW     = 20     # N-bar rolling high/low for swing level detection
-BRT_LEVEL_TOLERANCE  = 0.40   # ATR fraction for retest zone width
-BRT_MAX_RETEST_BARS  = 24     # Max bars to wait for retest (24 × 15min = 6 hours)
+BRT_LEVEL_TOLERANCE  = 0.55   # ATR fraction for retest zone width (widened to catch more retests)
+BRT_MAX_RETEST_BARS  = 40     # Max bars to wait for retest (40 × 15min = 10 hours)
 BRT_BREAK_BUFFER     = 0.15   # ATR fraction close must exceed level to confirm break
 BRT_BREAK_BODY_MIN   = 0.20   # Break candle BODY must be >= X*ATR (lowered for 15-min bars)
 BRT_VOLUME_THRESHOLD = 1.0    # Break candle volume must be >= X * 20-bar vol avg (1.0 = no filter)
-BRT_ADX_MIN          = 15     # Minimum ADX — lowered to 15 to allow moderate-trend setups
+BRT_ADX_MIN          = 12     # Minimum ADX — lowered to 12 to allow more setups in moderate-trend conditions
 # RSI: only block entries if RSI shows clear freefall or extreme overextension
 BRT_RSI_PERIOD       = 9      # RSI period — 9 is more responsive on 15-min than 14
                               # RSI(14) smooths over 3.5h of bars; RSI(9) reflects
                               # current momentum better for intraday confirmation.
-BRT_RSI_LONG_MIN     = 35     # RSI floor: skip if price in freefall
-BRT_RSI_LONG_MAX     = 75     # RSI ceiling: skip if severely overextended
-BRT_RSI_SHORT_MIN    = 25     # RSI floor for shorts
-BRT_RSI_SHORT_MAX    = 65     # RSI ceiling for shorts
+BRT_RSI_LONG_MIN     = 30     # RSI floor: skip if price in freefall
+BRT_RSI_LONG_MAX     = 80     # RSI ceiling: skip if severely overextended
+BRT_RSI_SHORT_MIN    = 20     # RSI floor for shorts
+BRT_RSI_SHORT_MAX    = 70     # RSI ceiling for shorts
 BRT_TP_RR            = 2.0    # Take profit as multiple of risk (R:R)
 BRT_SL_BUFFER        = 0.30   # Extra ATR buffer below retest low
 BRT_EMA_PERIOD       = 20     # EMA period for trend alignment filter
@@ -299,19 +299,15 @@ BRT_MAX_TRADE_RISK   = 0.02  # Skip trade if 1 contract risk exceeds 2% of capit
 #     trade > 2% loss, no day hitting the 3% drawdown stop more than once/week).
 
 # Session timing filter for BRT (ET hours, half-open intervals)
-BRT_SESSION_START_HOUR = 10   # Earliest entry hour (ET) — skip 9:30 open chop
-BRT_SESSION_END_HOUR   = 15   # Latest entry hour (ET) — skip last 30 min
+BRT_SESSION_START_HOUR = 9    # Earliest entry hour (ET) — first fire at 9:32 catches opening setups
+BRT_SESSION_END_HOUR   = 16   # Latest entry hour (ET) — extended to capture PM session
 
 # Lunch avoidance window (ET) — validated by ICT kill zone research:
 #   NY lunch (12:00–13:30 ET) = low liquidity, no institutional participation,
 #   choppy whipsaw price action. NY PM session resumes ~13:30–14:00.
 #   We skip 12:00–13:59 (conservative) to avoid the entire dead zone.
-BRT_LUNCH_START_HOUR   = 12   # Avoid entries from 12:00 ET
-BRT_LUNCH_END_HOUR     = 13   # Resume entries from 13:00 ET
-                              # Narrowed from 14:00 — skipping 12:00-14:00 was losing 2 of 5
-                              # trading hours. VWAP retests and ORH/PDH retests set up at 1 PM.
-                              # 12:00-13:00 = true dead zone (NY lunch, no institutional flow).
-                              # 13:00+ = institutions re-engage for the PM session.
+BRT_LUNCH_START_HOUR   = 12   # Lunch avoidance disabled (start == end = no block)
+BRT_LUNCH_END_HOUR     = 12   # Set equal to start to disable — trading all hours now
 
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.

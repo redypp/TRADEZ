@@ -16,7 +16,7 @@ from strategy.break_retest import prepare_break_retest
 from strategy.rsi2_daily import prepare_rsi2
 from strategy.vwap_reversion import prepare_vwap_reversion
 from backtest.engine import run_backtest
-from backtest.report import generate_report, print_report
+from backtest.report import generate_report, print_report, print_brt_breakdown
 
 
 def _fetch_vix_daily() -> pd.Series:
@@ -110,6 +110,9 @@ def backtest_symbol(symbol: str):
     result = run_backtest(df, strategy=strategy, initial_capital=INITIAL_CAPITAL)
     metrics = generate_report(result, symbol)
     print_report(metrics)
+
+    if strategy == "BRT" and not result["trades"].empty:
+        print_brt_breakdown(result["trades"])
 
     if not result["trades"].empty:
         os.makedirs("data", exist_ok=True)

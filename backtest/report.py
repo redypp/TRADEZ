@@ -161,6 +161,88 @@ def print_report(metrics: dict):
     print(f"{'═' * 50}\n")
 
 
+def print_brt_breakdown(trades: pd.DataFrame) -> None:
+    """
+    Print a breakdown of BRT backtest results by key dimensions:
+        - Level type (VWAP, PDH, PDL, SWING, etc.)
+        - Entry hour (9, 10, 11 ... 15)
+        - ADX range at entry (<15, 15–25, 25+)
+        - RSI range at entry (<40, 40–60, 60+)
+        - Liquidity sweep (yes / no)
+
+    This is the primary tool for understanding WHICH setups are driving
+    performance and WHERE the edge actually lives after loosening filters.
+    """
+    if trades.empty:
+        return
+
+    def _wr_row(label: str, subset: pd.DataFrame, total: pd.DataFrame) -> str:
+        n = len(subset)
+        if n == 0:
+            return f"  {label:<22} —"
+        wins = (subset["pnl"] > 0).sum()
+        wr   = wins / n * 100
+        pf_g = subset[subset["pnl"] > 0]["pnl"].sum()
+        pf_l = abs(subset[subset["pnl"] <= 0]["pnl"].sum())
+        pf   = pf_g / pf_l if pf_l > 0 else float("inf")
+        pf_s = f"{pf:.2f}" if pf != float("inf") else " INF"
+        pct_of_total = n / len(total) * 100
+        return (f"  {label:<22} {n:>4} trades ({pct_of_total:4.0f}%)  "
+                f"WR: {wr:5.1f}%  PF: {pf_s}")
+
+    divider = "─" * 60
+    print(f"\n{'═' * 60}")
+    print(f"  BRT BREAKDOWN ANALYSIS  ({len(trades)} trades)")
+    print(f"{'═' * 60}")
+
+    # ── By level type ─────────────────────────────────────────────
+    print(f"\n  BY LEVEL TYPE")
+    print(divider)
+    for ltype in sorted(trades["level_type"].unique()):
+        subset = trades[trades["level_type"] == ltype]
+        print(_wr_row(ltype or "(unknown)", subset, trades))
+
+    # ── By entry hour ─────────────────────────────────────────────
+    if "entry_hour" in trades.columns:
+        print(f"\n  BY ENTRY HOUR (ET)")
+        print(divider)
+        for hour in sorted(trades["entry_hour"].dropna().unique()):
+            subset = trades[trades["entry_hour"] == hour]
+            label  = f"{int(hour):02d}:00–{int(hour)+1:02d}:00"
+            print(_wr_row(label, subset, trades))
+
+    # ── By ADX range ──────────────────────────────────────────────
+    if "adx" in trades.columns:
+        print(f"\n  BY ADX AT ENTRY")
+        print(divider)
+        bins   = [(0, 15, "ADX < 15  (choppy)"),
+                  (15, 25, "ADX 15–25 (moderate)"),
+                  (25, 999, "ADX > 25  (trending)")]
+        for lo, hi, label in bins:
+            subset = trades[(trades["adx"] >= lo) & (trades["adx"] < hi)]
+            print(_wr_row(label, subset, trades))
+
+    # ── By RSI range ──────────────────────────────────────────────
+    if "rsi" in trades.columns:
+        print(f"\n  BY RSI AT ENTRY")
+        print(divider)
+        bins = [(0,  40, "RSI < 40  (oversold)"),
+                (40, 60, "RSI 40–60 (neutral)"),
+                (60, 999, "RSI > 60  (hot)")]
+        for lo, hi, label in bins:
+            subset = trades[(trades["rsi"] >= lo) & (trades["rsi"] < hi)]
+            print(_wr_row(label, subset, trades))
+
+    # ── By liquidity sweep ────────────────────────────────────────
+    if "liquidity_sweep" in trades.columns:
+        print(f"\n  BY LIQUIDITY SWEEP")
+        print(divider)
+        print(_wr_row("Sweep confirmed", trades[trades["liquidity_sweep"] == 1], trades))
+        print(_wr_row("No sweep",        trades[trades["liquidity_sweep"] == 0], trades))
+
+    print(f"{'═' * 60}\n")
+
+
 def _grade(m: dict) -> tuple:
     """Return a verdict and notes based on key metrics."""
     issues    = []

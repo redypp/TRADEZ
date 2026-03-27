@@ -239,21 +239,25 @@ def _run_brt(df: pd.DataFrame, initial_capital: float) -> dict:
                 capital  += net_pnl
                 equity_curve.append(capital)
                 trades.append({
-                    "entry_time":    position["entry_time"],
-                    "exit_time":     ts,
-                    "direction":     "LONG" if position["direction"] == 1 else "SHORT",
-                    "entry_price":   position["entry_price"],
-                    "exit_price":    exit_price,
-                    "stop_loss":     position["stop_loss"],
-                    "take_profit":   position["take_profit"],
-                    "retest_level":  position.get("retest_level"),
-                    "level_type":    position.get("level_type", ""),
-                    "contracts":     contracts,
-                    "raw_pnl":       round(raw_pnl, 2),
-                    "costs":         round(costs, 2),
-                    "pnl":           round(net_pnl, 2),
-                    "result":        "TP" if hit_tp else "SL",
-                    "capital_after": round(capital, 2),
+                    "entry_time":      position["entry_time"],
+                    "exit_time":       ts,
+                    "direction":       "LONG" if position["direction"] == 1 else "SHORT",
+                    "entry_price":     position["entry_price"],
+                    "exit_price":      exit_price,
+                    "stop_loss":       position["stop_loss"],
+                    "take_profit":     position["take_profit"],
+                    "retest_level":    position.get("retest_level"),
+                    "level_type":      position.get("level_type", ""),
+                    "liquidity_sweep": position.get("liquidity_sweep", 0),
+                    "adx":             position.get("adx", 0.0),
+                    "rsi":             position.get("rsi", 0.0),
+                    "entry_hour":      position.get("entry_hour"),
+                    "contracts":       contracts,
+                    "raw_pnl":         round(raw_pnl, 2),
+                    "costs":           round(costs, 2),
+                    "pnl":             round(net_pnl, 2),
+                    "result":          "TP" if hit_tp else "SL",
+                    "capital_after":   round(capital, 2),
                 })
                 position = None
 
@@ -274,15 +278,23 @@ def _run_brt(df: pd.DataFrame, initial_capital: float) -> dict:
                 continue
             if risk_per_contract > 0:
                 contracts = max(1, int(risk_amount / risk_per_contract))
+                try:
+                    entry_hour = ts.tz_convert("America/New_York").hour
+                except Exception:
+                    entry_hour = ts.hour
                 position = {
-                    "entry_time":   ts,
-                    "entry_price":  row["close"],
-                    "direction":    int(row["signal"]),
-                    "stop_loss":    row["stop_loss"],
-                    "take_profit":  row["take_profit"],
-                    "retest_level": row.get("retest_level"),
-                    "level_type":   row.get("level_type", ""),
-                    "contracts":    contracts,
+                    "entry_time":      ts,
+                    "entry_price":     row["close"],
+                    "direction":       int(row["signal"]),
+                    "stop_loss":       row["stop_loss"],
+                    "take_profit":     row["take_profit"],
+                    "retest_level":    row.get("retest_level"),
+                    "level_type":      row.get("level_type", ""),
+                    "liquidity_sweep": int(row.get("liquidity_sweep", 0)),
+                    "adx":             round(float(row.get("adx", 0)), 1),
+                    "rsi":             round(float(row.get("rsi", 0)), 1),
+                    "entry_hour":      entry_hour,
+                    "contracts":       contracts,
                 }
 
     return {

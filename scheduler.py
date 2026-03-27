@@ -4,7 +4,7 @@ scheduler.py
 Automated paper-trading bot for MES Break & Retest.
 
 How it works:
-    - APScheduler fires every hour at :02 (Mon–Fri, 10am–3pm ET)
+    - APScheduler fires every 15 min (Mon–Fri, 9am–4pm ET)
     - Each tick: authenticates to Tradovate → checks daily drawdown → fetches
       live fundamentals → reads current MES position → runs B&R signal engine →
       runs risk checks → places bracket order if approved → sends Telegram alert
@@ -228,7 +228,7 @@ def _init_session_if_new_day(equity: float) -> None:
 
 def run_signal_check() -> None:
     """
-    Core hourly job.  Runs every :02 past the hour, Mon–Fri, 10am–3pm ET.
+    Core job. Runs every 15 min, Mon–Fri, 9am–4pm ET.
 
     Sequence:
         1. Connect IBKR
@@ -343,7 +343,7 @@ def run_signal_check() -> None:
                 "yield_10y":    fundamentals.get("yield_10y"),
                 "dxy":          fundamentals.get("dxy"),
                 "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
-                "session_open": 1 if 10 <= et_hour < 15 else 0,
+                "session_open": 1 if 9 <= et_hour < 16 else 0,
                 "daily_pnl":    daily.get("total_pnl", 0.0),
                 "trades_today": daily.get("total", 0),
                 "adx_min":      regime_info.get("adx_min"),
@@ -634,7 +634,7 @@ def main() -> None:
     logger.info(f"  Mode   : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
     logger.info(f"  Broker : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
     logger.info(f"  Symbol : MES  (BRT — Break & Retest, 15min)")
-    logger.info(f"  Session: 10:02 – 14:47 ET  (Mon–Fri, every 15min)")
+    logger.info(f"  Session:  9:02 – 15:47 ET  (Mon–Fri, every 15min)")
     logger.info("=" * 50)
 
     scheduler = BlockingScheduler(timezone=ET)
@@ -644,7 +644,7 @@ def main() -> None:
         func    = run_signal_check,
         trigger = CronTrigger(
             day_of_week = "mon-fri",
-            hour        = "10-14",
+            hour        = "9-15",
             minute      = "2,17,32,47",
             timezone    = ET,
         ),
