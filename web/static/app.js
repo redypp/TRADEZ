@@ -824,8 +824,139 @@ function labRenderEquityChart(points, initialCapital) {
   });
 }
 
+// ── Stack Tab — Broker Status & Setup Checklist ───────────────────────────────
+
+async function fetchBrokerStatus() {
+  try {
+    const res = await fetch('/api/broker/status');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+function renderStackRisk(settings) {
+  if (!settings) return;
+  const pct = v => v != null ? (v * 100).toFixed(1) + '%' : '—';
+  const rpt  = settings.risk_per_trade;
+  const mdd  = settings.max_daily_drawdown;
+
+  const rptEl  = $('srg-risk-per-trade');
+  const mddEl  = $('srg-max-drawdown');
+  const heatEl = $('srg-portfolio-heat');
+  const rrEl   = $('srg-tp-rr');
+  const sessEl = $('srg-session');
+  const lunchEl= $('srg-lunch');
+
+  if (rptEl)  { rptEl.textContent  = pct(rpt); rptEl.className = 'srg-val ' + (rpt <= 0.01 ? 'green' : rpt <= 0.02 ? 'amber' : 'red'); }
+  if (mddEl)  { mddEl.textContent  = pct(mdd); mddEl.className = 'srg-val ' + (mdd <= 0.03 ? 'green' : mdd <= 0.05 ? 'amber' : 'red'); }
+  if (heatEl) heatEl.textContent   = pct(settings.portfolio_heat_max);
+  if (rrEl)   rrEl.textContent     = settings.brt_tp_rr != null ? settings.brt_tp_rr + 'R' : '—';
+  if (sessEl) sessEl.textContent   = `${settings.brt_session_start ?? 10}:00 – ${settings.brt_session_end ?? 15}:00 ET`;
+  if (lunchEl)lunchEl.textContent  = `${settings.brt_lunch_start ?? 12}:00 – ${settings.brt_lunch_end ?? 13}:00 ET`;
+
+  const src = $('risk-config-source');
+  if (src) src.textContent = '(live from /api/settings)';
+}
+
+function renderSetupChecklist(broker) {
+  const el = $('setup-checklist');
+  if (!el) return;
+  if (!broker) { el.innerHTML = '<div class="sc-loading">Could not fetch status — is the server running?</div>'; return; }
+
+  const items = [
+    {
+      label: 'Paper trading mode',
+      ok: true,
+      val: broker.paper_trading ? 'PAPER (safe)' : 'LIVE',
+      note: broker.paper_trading ? 'Safe to test — no real money at risk' : '⚠ LIVE mode — real money',
+    },
+    {
+      label: 'Tradovate credentials',
+      ok: broker.tradovate?.credentials_set,
+      val: broker.tradovate?.credentials_set ? `Set (${broker.tradovate.mode})` : 'Not set — pending',
+      note: broker.tradovate?.credentials_set ? null : 'Waiting for Tradovate API subscription',
+    },
+    {
+      label: 'Alpaca credentials',
+      ok: broker.alpaca?.credentials_set,
+      val: broker.alpaca?.credentials_set ? 'Set' : 'Not set',
+      note: broker.alpaca?.credentials_set ? null : 'Required for stock/ETF strategies (SPY, QQQ)',
+    },
+    {
+      label: 'Telegram alerts',
+      ok: broker.telegram?.configured,
+      val: broker.telegram?.configured ? `Active (chat: ${broker.telegram.chat_id})` : 'Not configured',
+      note: broker.telegram?.configured ? null : 'Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID in .env',
+    },
+    {
+      label: 'Risk: per-trade limit',
+      ok: (broker.risk?.per_trade_pct ?? 99) <= 1.5,
+      val: broker.risk ? broker.risk.per_trade_pct.toFixed(1) + '%' : '—',
+      note: (broker.risk?.per_trade_pct ?? 99) > 1.5 ? 'Recommended: 1.0% for paper trading' : null,
+    },
+    {
+      label: 'Risk: daily stop',
+      ok: (broker.risk?.daily_stop_pct ?? 99) <= 5,
+      val: broker.risk ? broker.risk.daily_stop_pct.toFixed(1) + '%' : '—',
+      note: (broker.risk?.daily_stop_pct ?? 99) > 5 ? 'Recommended: 3.0% for paper trading' : null,
+    },
+    {
+      label: 'Active symbols',
+      ok: (broker.symbols?.length ?? 0) > 0,
+      val: broker.symbols?.join(', ') || '—',
+      note: null,
+    },
+  ];
+
+  el.innerHTML = items.map(item => {
+    const cls  = item.ok ? 'sc-item ok' : 'sc-item warn';
+    const icon = item.ok ? '✓' : '⚠';
+    const iconCls = item.ok ? 'sc-icon ok' : 'sc-icon warn';
+    return `<div class="${cls}">
+      <span class="${iconCls}">${icon}</span>
+      <div class="sc-body">
+        <span class="sc-label">${item.label}</span>
+        <span class="sc-val">${item.val}</span>
+        ${item.note ? `<span class="sc-note">${item.note}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshStackTab() {
+  const broker = await fetchBrokerStatus();
+  renderSetupChecklist(broker);
+  // Also update the broker status badge in the Tradovate card
+  const bsEl = $('stack-broker-status');
+  if (bsEl && broker?.tradovate) {
+    if (broker.tradovate.credentials_set) {
+      bsEl.textContent = `✓ Connected — ${broker.tradovate.mode}`;
+      bsEl.style.color = 'var(--green)';
+    } else {
+      bsEl.textContent = '⚠ Credentials not set — fill in .env';
+      bsEl.style.color = 'var(--amber)';
+    }
+  }
+}
+
+// Hook into tab switching — refresh Stack tab data when selected
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  if (btn.dataset.tab === 'stack') {
+    btn.addEventListener('click', refreshStackTab);
+  }
+});
+
+// Also populate Stack risk config whenever we get a data bundle (WebSocket or REST)
+const _origRender = render;
+render = function(data) {
+  _origRender(data);
+  if (data?.settings) renderStackRisk(data.settings);
+};
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 initChart();
 connectWS();
 pollRest();
 setInterval(pollRest, POLL_MS);
+// Fetch broker status once on load (Stack tab may be the first thing someone checks)
+refreshStackTab();

@@ -547,8 +547,8 @@
       <div class="mc-list">
         <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Session window</div><div class="mi-desc">Entries only between <code>10:00 – 15:00 ET</code> · avoids open auction and late illiquidity</div></div></div>
         <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Scheduler cadence</div><div class="mi-desc">Runs at <code>:02</code> past each hour · checks last completed 15-min bar</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Daily loss limit</div><div class="mi-desc">Max 2 losses per day · trading halts if daily P&amp;L &lt; −$200</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Max daily trades</div><div class="mi-desc">Max 3 trades per session · prevents overtrading in choppy tape</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Daily drawdown stop</div><div class="mi-desc">Trading halts if session equity falls more than <code>MAX_DAILY_DRAWDOWN</code> (default 3%) from the open</div></div></div>
+        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Max daily trades</div><div class="mi-desc">Up to <code>MAX_TRADES_PER_DAY</code> (default 5) trades/session · prevents overtrading in choppy tape</div></div></div>
       </div>
     </div>
 
@@ -927,40 +927,48 @@
 
   </div><!-- /stack-grid -->
 
-  <!-- Risk config snapshot -->
+  <!-- Risk config snapshot — dynamically populated from /api/settings -->
   <div class="card stack-risk-card">
-    <div class="card-head">RISK CONFIGURATION <span class="card-head-sub">(from .env)</span></div>
+    <div class="card-head">RISK CONFIGURATION <span class="card-head-sub" id="risk-config-source">(from .env)</span></div>
     <div class="stack-risk-grid">
       <div class="srg-item">
         <div class="srg-label">Risk per trade</div>
-        <div class="srg-val green">2.0%</div>
-        <div class="srg-key mono">RISK_PER_TRADE=0.02</div>
+        <div class="srg-val" id="srg-risk-per-trade">—</div>
+        <div class="srg-key mono" id="srg-risk-per-trade-key">RISK_PER_TRADE</div>
       </div>
       <div class="srg-item">
         <div class="srg-label">Max daily drawdown</div>
-        <div class="srg-val amber">10.0%</div>
-        <div class="srg-key mono">MAX_DAILY_DRAWDOWN=0.10</div>
+        <div class="srg-val" id="srg-max-drawdown">—</div>
+        <div class="srg-key mono" id="srg-max-drawdown-key">MAX_DAILY_DRAWDOWN</div>
       </div>
       <div class="srg-item">
-        <div class="srg-label">Max trades / day</div>
-        <div class="srg-val">3</div>
-        <div class="srg-key mono">hardcoded in scheduler</div>
+        <div class="srg-label">Portfolio heat max</div>
+        <div class="srg-val" id="srg-portfolio-heat">—</div>
+        <div class="srg-key mono">PORTFOLIO_HEAT_MAX</div>
       </div>
       <div class="srg-item">
-        <div class="srg-label">Max losses / day</div>
-        <div class="srg-val">2</div>
-        <div class="srg-key mono">hardcoded in scheduler</div>
+        <div class="srg-label">BRT R:R target</div>
+        <div class="srg-val" id="srg-tp-rr">—</div>
+        <div class="srg-key mono">BRT_TP_RR</div>
       </div>
       <div class="srg-item">
         <div class="srg-label">Session window</div>
-        <div class="srg-val">10:00 – 15:00 ET</div>
+        <div class="srg-val" id="srg-session">—</div>
         <div class="srg-key mono">Mon–Fri · hourly :02</div>
       </div>
       <div class="srg-item">
         <div class="srg-label">Lunch blackout</div>
-        <div class="srg-val">12:00 – 14:00 ET</div>
-        <div class="srg-key mono">NY_LUNCH_AVOID=True</div>
+        <div class="srg-val" id="srg-lunch">—</div>
+        <div class="srg-key mono">BRT_LUNCH_START/END_HOUR</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Setup Checklist — populated dynamically from /api/broker/status -->
+  <div class="card stack-checklist-card">
+    <div class="card-head">SETUP CHECKLIST</div>
+    <div id="setup-checklist" class="setup-checklist">
+      <div class="sc-loading">Checking configuration…</div>
     </div>
   </div>
 
@@ -1019,7 +1027,7 @@ i_sl_buffer   = input.float(0.30, "SL Buffer (× ATR)",         minval=0.1, maxv
 i_atr_period  = input.int(14, "ATR Period",   minval=1, group="Indicators")
 i_ema_period  = input.int(20, "EMA Period",   minval=1, group="Indicators")
 i_adx_period  = input.int(14, "ADX Period",   minval=1, group="Indicators")
-i_rsi_period  = input.int(14, "RSI Period",   minval=1, group="Indicators")
+i_rsi_period  = input.int(9,  "RSI Period",   minval=1, group="Indicators")  // matches BRT_RSI_PERIOD=9 in settings.py
 i_vol_ma      = input.int(20, "Volume MA",    minval=1, group="Indicators")
 i_swing_n     = input.int(10, "Swing Window", minval=3, group="Indicators")
 
@@ -1044,7 +1052,7 @@ i_long_only    = input.bool(true, "Long Only",                                  
 i_sess_start  = input.int(10, "Session Start Hour (ET)",    minval=0, maxval=23, group="Session")
 i_sess_end    = input.int(15, "Session End Hour (ET)",      minval=0, maxval=23, group="Session")
 i_lunch_start = input.int(12, "Lunch Blackout Start (ET)",  minval=0, maxval=23, group="Session")
-i_lunch_end   = input.int(14, "Lunch Blackout End (ET)",    minval=0, maxval=23, group="Session")
+i_lunch_end   = input.int(13, "Lunch Blackout End (ET)",    minval=0, maxval=23, group="Session")  // matches BRT_LUNCH_END_HOUR=13 in settings.py
 
 // Regime (VIX-gated)
 i_use_regime  = input.bool(true,  "Use VIX Regime Engine",  group="Regime")

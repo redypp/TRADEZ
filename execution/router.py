@@ -329,6 +329,20 @@ class ExecutionRouter:
         """Cancel all orders for symbol on its assigned broker."""
         return self.get_broker_for(symbol).cancel_all_orders(symbol)
 
+    def modify_stop(self, symbol: str, new_stop: float) -> bool:
+        """
+        Modify the stop-loss of an open order for symbol.
+        Used by risk/manager.py for breakeven stop management (BRT_BREAKEVEN_AT_1R).
+
+        Delegates to the broker's modify_stop() implementation.
+        Returns True if the modification was accepted, False otherwise.
+        """
+        broker = self.get_broker_for(symbol)
+        logger.info(
+            f"Router → {broker.name} | modify_stop({symbol}, {new_stop:.2f})"
+        )
+        return broker.modify_stop(symbol, new_stop)
+
     def close_position(self, symbol: str) -> dict:
         """Emergency flatten: close any open position in symbol at market."""
         return self.get_broker_for(symbol).close_position(symbol)

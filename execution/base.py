@@ -140,6 +140,24 @@ class BrokerBase(ABC):
         """
         return None
 
+    def modify_stop(self, symbol: str, new_stop: float) -> bool:
+        """
+        Modify the stop-loss price of an existing open order for symbol.
+        Used by the breakeven stop management system (BRT_BREAKEVEN_AT_1R).
+
+        Returns True if the modification was accepted, False if not supported.
+
+        Brokers that support stop modification should override this method.
+        The default implementation logs a warning and returns False (graceful no-op).
+        """
+        import logging
+        logging.getLogger(__name__).warning(
+            f"modify_stop not implemented for {self.__class__.__name__} — "
+            f"breakeven stop move skipped for {symbol} @ {new_stop:.2f}. "
+            f"Override modify_stop() in the broker connector to enable this feature."
+        )
+        return False
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def __repr__(self) -> str:
