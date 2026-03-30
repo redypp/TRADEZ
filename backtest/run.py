@@ -68,6 +68,7 @@ STRATEGY_TIMEFRAME = {
     "ORB":      60,    # 1h candles
     "DONCHIAN": 1440,  # Daily candles
     "BRT":      15,    # 15-min candles (60 days max from yfinance)
+    "BRT_LONG": 60,    # 1h candles (730d available — for statistical validation)
     "VWAP_MR":  5,     # 5-min candles (60 days max from yfinance)
     "RSI2":     1440,  # Daily candles
 }
@@ -76,18 +77,22 @@ STRATEGY_TIMEFRAME = {
 STRATEGY_PERIOD = {
     "ORB":      "730d",
     "DONCHIAN": "5y",
-    "BRT":      "60d",   # max for 15-min interval from yfinance
-    "VWAP_MR":  "60d",  # max for 5-min interval from yfinance
-    "RSI2":     "5y",   # 5y of daily data (~200+ trades on SPY)
+    "BRT":      "60d",    # max for 15-min interval from yfinance
+    "BRT_LONG": "730d",   # 1h bars, 2 years — statistically meaningful (50+ trades)
+    "VWAP_MR":  "60d",    # max for 5-min interval from yfinance
+    "RSI2":     "5y",     # 5y of daily data (~200+ trades on SPY)
 }
 
 
-def backtest_symbol(symbol: str):
+def backtest_symbol(symbol: str, long_mode: bool = False):
     strategy = settings.SYMBOL_STRATEGY.get(symbol, "ORB")
-    timeframe = STRATEGY_TIMEFRAME[strategy]
-    period = STRATEGY_PERIOD[strategy]
+    # BRT long mode: use 1h bars / 730d for statistical validity (50+ trades)
+    strat_key = "BRT_LONG" if (strategy == "BRT" and long_mode) else strategy
+    timeframe = STRATEGY_TIMEFRAME[strat_key]
+    period = STRATEGY_PERIOD[strat_key]
 
-    print(f"\nRunning {strategy} backtest for {symbol}...")
+    mode_label = " [LONG MODE — 1h/730d]" if long_mode and strategy == "BRT" else ""
+    print(f"\nRunning {strategy} backtest for {symbol}{mode_label}...")
 
     df = fetch_historical(symbol, period=period, timeframe_minutes=timeframe)
 
@@ -116,7 +121,8 @@ def backtest_symbol(symbol: str):
 
     if not result["trades"].empty:
         os.makedirs("data", exist_ok=True)
-        path = f"data/backtest_{symbol}.csv"
+        suffix = "_long" if long_mode and strategy == "BRT" else ""
+        path = f"data/backtest_{symbol}{suffix}.csv"
         result["trades"].to_csv(path, index=False)
         print(f"  Trade log saved → {path}")
 
@@ -264,7 +270,12 @@ if __name__ == "__main__":
     parser.add_argument("--strategy",
                         choices=["all", "BRT", "ORB", "DONCHIAN", "VWAP_MR", "RSI2", "VWAP_SWEEP"],
                         default="all", help="Strategy to backtest (default: all)")
+    parser.add_argument("--mode",
+                        choices=["short", "long"],
+                        default="short",
+                        help="BRT data mode: short=15min/60d (default), long=1h/730d (statistical validation)")
     args = parser.parse_args()
+    long_mode = args.mode == "long"
 
     print("\n" + "=" * 45)
     print("  TRADEZ — BACKTEST RUNNER")
@@ -279,7 +290,7 @@ if __name__ == "__main__":
     for symbol in settings.SYMBOLS:
         strategy = settings.SYMBOL_STRATEGY.get(symbol, "ORB")
         if run_all or args.strategy == strategy:
-            metrics = backtest_symbol(symbol)
+            metrics = backtest_symbol(symbol, long_mode=long_mode)
             if metrics:
                 all_metrics[symbol] = metrics
 

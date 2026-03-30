@@ -200,7 +200,7 @@ BRT_VWAP_TOLERANCE   = 0.15   # ATR fraction for VWAP retest zone (tighter — V
 # Research finding: reduces entry frequency ~20%, improves win rate 5-8 percentage points.
 # On by default — it filters weak "doji-like" candles where close > open but close is
 # still in the bottom half of the bar's range (low conviction close).
-BRT_VSA_CLOSE_POSITION = False  # Enforce close in correct half of bar range
+BRT_VSA_CLOSE_POSITION = True   # Enforce close in correct half of bar range (research: +5-8% WR)
 
 BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity sweep
                               #   LONG : low < broken_level AND close > broken_level
@@ -307,8 +307,8 @@ BRT_SESSION_END_HOUR   = 16   # Latest entry hour (ET) — extended to capture P
 #   NY lunch (12:00–13:30 ET) = low liquidity, no institutional participation,
 #   choppy whipsaw price action. NY PM session resumes ~13:30–14:00.
 #   We skip 12:00–13:59 (conservative) to avoid the entire dead zone.
-BRT_LUNCH_START_HOUR   = 12   # Lunch avoidance disabled (start == end = no block)
-BRT_LUNCH_END_HOUR     = 12   # Set equal to start to disable — trading all hours now
+BRT_LUNCH_START_HOUR   = 12   # NY lunch dead zone start (ET) — ICT kill zone research
+BRT_LUNCH_END_HOUR     = 14   # NY lunch dead zone end (ET) — resume at 14:00 ET
 
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.
@@ -317,7 +317,7 @@ BRT_LUNCH_END_HOUR     = 12   # Set equal to start to disable — trading all ho
 VIX_NORMAL_MAX    = 20   # VIX < 20 = low fear, fully risk-on
 VIX_ELEVATED_MAX  = 30   # VIX 20-30 = elevated, trade with caution
 VIX_HIGH_MAX      = 40   # VIX 30-40 = high, skip marginal setups; reduce sizing
-VIX_EXTREME       = 40   # VIX > 40 = extreme fear, no new longs
+VIX_EXTREME       = 45   # VIX > 45 = extreme fear, no new longs (raised from 40 — 40 is elevated, 45 is sustained crisis)
 
 YIELD_LOOKBACK_DAYS  = 5     # Days to measure yield trend
 YIELD_RISING_THRESH  = 0.10  # 5-day absolute yield change > +0.10pp (+10bps) → headwind
