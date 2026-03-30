@@ -287,7 +287,7 @@ BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity swe
 #   FVG:   +2  — FVGs are already lowest-priority; extra trend filter reduces noise
 # Example: NORMAL regime (adx_min=20) → VWAP threshold=15, SWING threshold=22.
 # Floor: never below 12 (ADX <12 = pure noise regardless of level type).
-BRT_ADX_DELTA_VWAP   = +3   # VWAP needs MORE filtering (backtest: 28.6% WR — raise bar, not lower it)
+BRT_ADX_DELTA_VWAP   =  0   # VWAP: neutral delta — morning bad VWAP now handled by session block (10-14)
 BRT_ADX_DELTA_SWING  = +2   # Swing needs slightly more trend confidence
 BRT_ADX_DELTA_FVG    = +2   # FVG — weakest level type, extra filter
 BRT_ADX_FLOOR        = 12   # Absolute minimum ADX — below this is noise
