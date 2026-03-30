@@ -186,6 +186,22 @@ NEWS_GROK_INTERVAL_SECONDS   = int(os.getenv("NEWS_GROK_INTERVAL_SECONDS",   "30
 NEWS_HALT_ENABLED            = os.getenv("NEWS_HALT_ENABLED",            "false").lower() == "true"
 NEWS_HALT_MINUTES            = int(os.getenv("NEWS_HALT_MINUTES",            "15"))
 
+# ── News-driven trade influence ────────────────────────────────────────────
+# When a HIGH/MEDIUM news event fires, Grok assesses its directional impact
+# on MES (BULLISH / BEARISH / NEUTRAL). If confidence >= NEWS_TRADE_CONFIDENCE_MIN,
+# the signal is stored and used by the strategy layer to:
+#   - BLOCK entries that oppose the news direction
+#   - CONFIRM entries that align with the news direction (noted in Telegram)
+#
+# The bot still requires a valid BRT price setup — news alone never triggers a trade.
+# Enable NEWS_TRADE_ENABLED only after running NEWS_MONITOR_ENABLED for a week.
+#
+# NEWS_TRADE_CONFIDENCE_MIN : Grok confidence threshold to act (0.70 = 70%)
+# NEWS_SIGNAL_EXPIRY_MINUTES: How long a news signal stays active (default: 30 min)
+NEWS_TRADE_ENABLED           = os.getenv("NEWS_TRADE_ENABLED",           "false").lower() == "true"
+NEWS_TRADE_CONFIDENCE_MIN    = float(os.getenv("NEWS_TRADE_CONFIDENCE_MIN",    "0.70"))
+NEWS_SIGNAL_EXPIRY_MINUTES   = int(os.getenv("NEWS_SIGNAL_EXPIRY_MINUTES",     "30"))
+
 # ── EMA Crossover (legacy signals.py) ────────────────────────────────────
 TIMEFRAME = 60                # Default timeframe in minutes (used by main.py)
 EMA_FAST = 20
@@ -233,12 +249,12 @@ BRT_MAX_RETEST_BARS  = 40     # Max bars to wait for retest (40 × 15min = 10 ho
 BRT_BREAK_BUFFER     = 0.15   # ATR fraction close must exceed level to confirm break
 BRT_BREAK_BODY_MIN   = 0.20   # Break candle BODY must be >= X*ATR (lowered for 15-min bars)
 BRT_VOLUME_THRESHOLD = 1.0    # Break candle volume must be >= X * 20-bar vol avg (1.0 = no filter)
-BRT_ADX_MIN          = 12     # Minimum ADX — lowered to 12 to allow more setups in moderate-trend conditions
+BRT_ADX_MIN          = 18     # Minimum ADX — raised to 18 to filter morning chop (backtest: ADX>25 = 1.60 PF)
 # RSI: only block entries if RSI shows clear freefall or extreme overextension
 BRT_RSI_PERIOD       = 9      # RSI period — 9 is more responsive on 15-min than 14
                               # RSI(14) smooths over 3.5h of bars; RSI(9) reflects
                               # current momentum better for intraday confirmation.
-BRT_RSI_LONG_MIN     = 30     # RSI floor: skip if price in freefall
+BRT_RSI_LONG_MIN     = 45     # RSI floor: raised to 45 — neutral zone (40-60) loses; RSI>60 = 1.83 PF
 BRT_RSI_LONG_MAX     = 80     # RSI ceiling: skip if severely overextended
 BRT_RSI_SHORT_MIN    = 20     # RSI floor for shorts
 BRT_RSI_SHORT_MAX    = 70     # RSI ceiling for shorts
@@ -271,7 +287,7 @@ BRT_REQUIRE_SWEEP    = False  # If True: retest candle must show a liquidity swe
 #   FVG:   +2  — FVGs are already lowest-priority; extra trend filter reduces noise
 # Example: NORMAL regime (adx_min=20) → VWAP threshold=15, SWING threshold=22.
 # Floor: never below 12 (ADX <12 = pure noise regardless of level type).
-BRT_ADX_DELTA_VWAP   = -5   # VWAP works with less trend (mean-reversion tendency)
+BRT_ADX_DELTA_VWAP   = +3   # VWAP needs MORE filtering (backtest: 28.6% WR — raise bar, not lower it)
 BRT_ADX_DELTA_SWING  = +2   # Swing needs slightly more trend confidence
 BRT_ADX_DELTA_FVG    = +2   # FVG — weakest level type, extra filter
 BRT_ADX_FLOOR        = 12   # Absolute minimum ADX — below this is noise
@@ -361,8 +377,8 @@ BRT_SESSION_END_HOUR   = 16   # Latest entry hour (ET) — extended to capture P
 #   NY lunch (12:00–13:30 ET) = low liquidity, no institutional participation,
 #   choppy whipsaw price action. NY PM session resumes ~13:30–14:00.
 #   We skip 12:00–13:59 (conservative) to avoid the entire dead zone.
-BRT_LUNCH_START_HOUR   = 12   # NY lunch dead zone start (ET) — ICT kill zone research
-BRT_LUNCH_END_HOUR     = 14   # NY lunch dead zone end (ET) — resume at 14:00 ET
+BRT_LUNCH_START_HOUR   = 10   # Morning chop dead zone (ET) — backtest: 10-12 = 20-25% WR, 0.53-0.66 PF
+BRT_LUNCH_END_HOUR     = 14   # Resume at 14:00 ET — afternoon session: 66.7% WR / 3.81 PF
 
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.
