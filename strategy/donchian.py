@@ -86,3 +86,41 @@ def get_latest_donchian_signal(df: pd.DataFrame) -> dict:
         "atr": float(last["atr"]),
         "stop_loss": float(last["stop_loss"]) if pd.notna(last["stop_loss"]) else None,
     }
+
+
+# ── Strategy class (self-registers with orchestrator) ─────────────────────────
+
+from strategy.base import AbstractStrategy
+from strategy.registry import register
+
+
+@register
+class DonchianStrategy(AbstractStrategy):
+    """
+    Donchian Channel Breakout — metals and commodities (daily candles).
+    Turtle Trading system: enter on 20-day high/low, trail on 10-day channel.
+    Runs once per day (checked in the 9 AM ET session window).
+    """
+
+    name              = "DONCHIAN"
+    timeframe_minutes = 1440   # daily
+    priority          = 30
+
+    def __init__(self):
+        from config import settings as _s
+        self.symbols = _s.STRATEGY_SYMBOLS.get("DONCHIAN", ["MGC", "SIL", "MNQ"])
+
+    def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
+        if regime == "NO_TRADE":
+            return False
+        # Daily strategy — only evaluate once, at session open
+        return 9 <= session_hour < 10
+
+    def prepare(self, df, long_only: bool = False, **kwargs):
+        return prepare_donchian(df, long_only=long_only)
+
+    def get_signal(self, df, **kwargs) -> dict:
+        sig = get_latest_donchian_signal(df)
+        # Ensure take_profit key present (Donchian uses trailing exit, no fixed TP)
+        sig.setdefault("take_profit", 0.0)
+        return sig

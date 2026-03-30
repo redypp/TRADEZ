@@ -81,16 +81,52 @@ SYMBOLS = os.getenv("SYMBOLS", "MES,MGC").split(",")
 EXCHANGE = os.getenv("EXCHANGE", "CME")
 CURRENCY = os.getenv("CURRENCY", "USD")
 
-# Strategy per symbol
-# ORB       = Opening Range Breakout (index futures, hourly)
-# DONCHIAN  = Donchian Channel Breakout (metals, daily)
-# BRT       = Break & Retest (MES, hourly with multi-confluence)
+# ── Legacy single-strategy map (kept for router / backtest compatibility) ──────
+# For live multi-strategy routing use STRATEGY_ENABLED + STRATEGY_SYMBOLS below.
 SYMBOL_STRATEGY = {
     "MES": "BRT",
     "MNQ": "DONCHIAN",
     "MGC": "DONCHIAN",
     "SIL": "DONCHIAN",
 }
+
+# ── Multi-strategy orchestration ───────────────────────────────────────────────
+#
+# STRATEGY_ENABLED   — hard on/off per strategy name.
+#                      Override any in .env: STRATEGY_BRT_ENABLED=true
+#
+# STRATEGY_SYMBOLS   — which symbols each strategy can trade.
+#                      Override in .env: STRATEGY_BRT_SYMBOLS=MES,MNQ
+#
+# STRATEGY_CONFLICT_RESOLUTION
+#   When 2+ strategies want the same symbol in OPPOSING directions:
+#     PRIORITY  — highest-priority (lowest .priority number) strategy wins
+#     SKIP      — no trade taken on that symbol this tick (safest)
+#
+# ACTIVE_SYMBOLS — master list of symbols the orchestrator evaluates each tick.
+#   A symbol is only traded if at least one enabled strategy lists it here.
+#
+STRATEGY_ENABLED = {
+    "BRT":      os.getenv("STRATEGY_BRT_ENABLED",      "true").lower()  == "true",
+    "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_ENABLED",  "false").lower() == "true",
+    "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_ENABLED",  "false").lower() == "true",
+    "ORB":      os.getenv("STRATEGY_ORB_ENABLED",       "false").lower() == "true",
+    "RSI2":     os.getenv("STRATEGY_RSI2_ENABLED",      "false").lower() == "true",
+}
+
+STRATEGY_SYMBOLS = {
+    "BRT":      os.getenv("STRATEGY_BRT_SYMBOLS",      "MES").split(","),
+    "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_SYMBOLS",  "MES").split(","),
+    "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_SYMBOLS",  "MGC,SIL,MNQ").split(","),
+    "ORB":      os.getenv("STRATEGY_ORB_SYMBOLS",       "MES,MNQ").split(","),
+    "RSI2":     os.getenv("STRATEGY_RSI2_SYMBOLS",      "SPY,QQQ,IWM").split(","),
+}
+
+STRATEGY_CONFLICT_RESOLUTION = os.getenv("STRATEGY_CONFLICT_RESOLUTION", "PRIORITY")
+
+# All symbols the orchestrator evaluates each tick.
+# Only symbols with at least one enabled strategy in STRATEGY_SYMBOLS are traded.
+ACTIVE_SYMBOLS = os.getenv("ACTIVE_SYMBOLS", "MES,MGC,SIL,MNQ,SPY,QQQ,IWM").split(",")
 
 # ── Algo trading robustness controls ──────────────────────────────────────────
 
@@ -131,6 +167,24 @@ PORTFOLIO_HEAT_MAX  = float(os.getenv("PORTFOLIO_HEAT_MAX",  "0.05"))  # 5% tota
 # Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ── Real-time News Monitor ─────────────────────────────────────────────────
+# Polls RSS feeds + Grok (X/Twitter) in a background thread for breaking news.
+# Sends immediate Telegram alerts on HIGH/MEDIUM impact events.
+#
+# NEWS_MONITOR_ENABLED   — master toggle. Set true to activate.
+# NEWS_POLL_INTERVAL_SECONDS — how often to poll RSS feeds (default: 120 = 2 min)
+# NEWS_GROK_INTERVAL_SECONDS — how often to query Grok/X (default: 300 = 5 min)
+#                              Grok scans cost API credits; keep >= 300.
+# NEWS_HALT_ENABLED      — if true, HIGH-impact events pause new trade entries
+#                          for NEWS_HALT_MINUTES. Recommended: enable after
+#                          paper-trading the monitor for a week to tune it.
+# NEWS_HALT_MINUTES      — how long to block entries after HIGH-impact event (default: 15)
+NEWS_MONITOR_ENABLED         = os.getenv("NEWS_MONITOR_ENABLED",         "false").lower() == "true"
+NEWS_POLL_INTERVAL_SECONDS   = int(os.getenv("NEWS_POLL_INTERVAL_SECONDS",   "120"))
+NEWS_GROK_INTERVAL_SECONDS   = int(os.getenv("NEWS_GROK_INTERVAL_SECONDS",   "300"))
+NEWS_HALT_ENABLED            = os.getenv("NEWS_HALT_ENABLED",            "false").lower() == "true"
+NEWS_HALT_MINUTES            = int(os.getenv("NEWS_HALT_MINUTES",            "15"))
 
 # ── EMA Crossover (legacy signals.py) ────────────────────────────────────
 TIMEFRAME = 60                # Default timeframe in minutes (used by main.py)

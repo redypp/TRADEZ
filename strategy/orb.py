@@ -197,3 +197,38 @@ def get_latest_orb_signal(df: pd.DataFrame) -> dict:
         "take_profit": float(last["take_profit"]) if pd.notna(last["take_profit"]) else None,
         "eod_exit": bool(last["eod_exit"]),
     }
+
+
+# ── Strategy class (self-registers with orchestrator) ─────────────────────────
+
+from strategy.base import AbstractStrategy
+from strategy.registry import register
+
+
+@register
+class ORBStrategy(AbstractStrategy):
+    """
+    Opening Range Breakout — index futures (hourly candles).
+    Enters on breakout of the first 30-min range, only in ORB_ENTRY_HOURS.
+    """
+
+    name              = "ORB"
+    timeframe_minutes = 60    # hourly
+    priority          = 25
+
+    def __init__(self):
+        from config import settings as _s
+        self.symbols = _s.STRATEGY_SYMBOLS.get("ORB", ["MES", "MNQ"])
+
+    def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
+        if regime == "NO_TRADE":
+            return False
+        return session_hour in settings.ORB_ENTRY_HOURS
+
+    def prepare(self, df, **kwargs):
+        return prepare_orb(df)
+
+    def get_signal(self, df, **kwargs) -> dict:
+        sig = get_latest_orb_signal(df)
+        sig.setdefault("level_type", "ORB")
+        return sig

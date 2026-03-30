@@ -614,3 +614,46 @@ def get_latest_brt_signal(df: pd.DataFrame) -> dict:
         "fvg_bear_low":    float(last["fvg_bear_low"])  if pd.notna(last.get("fvg_bear_low"))  else None,
         "fvg_bear_high":   float(last["fvg_bear_high"]) if pd.notna(last.get("fvg_bear_high")) else None,
     }
+
+
+# ── Strategy class (self-registers with orchestrator) ─────────────────────────
+
+from strategy.base import AbstractStrategy
+from strategy.registry import register
+
+
+@register
+class BreakRetestStrategy(AbstractStrategy):
+    """
+    Break & Retest — primary MES strategy.
+    Runs on 15-minute candles. Requires trending regime (ADX-gated).
+    Highest priority (10) — wins all conflict resolution disputes.
+    """
+
+    name              = "BRT"
+    timeframe_minutes = settings.BRT_TIMEFRAME   # 15
+    priority          = 10
+
+    def __init__(self):
+        # Symbols sourced from settings so they can be changed in .env
+        from config import settings as _s
+        self.symbols = _s.STRATEGY_SYMBOLS.get("BRT", ["MES"])
+
+    def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
+        if regime == "NO_TRADE":
+            return False
+        start       = settings.BRT_SESSION_START_HOUR
+        end         = settings.BRT_SESSION_END_HOUR
+        lunch_start = settings.BRT_LUNCH_START_HOUR
+        lunch_end   = settings.BRT_LUNCH_END_HOUR
+        if not (start <= session_hour < end):
+            return False
+        if lunch_start <= session_hour < lunch_end:
+            return False
+        return True
+
+    def prepare(self, df, long_only: bool = True, regime_params: dict = None, **kwargs):
+        return prepare_break_retest(df, long_only=long_only, regime_params=regime_params)
+
+    def get_signal(self, df, **kwargs) -> dict:
+        return get_latest_brt_signal(df)

@@ -1,24 +1,30 @@
 """
 scheduler.py
 
-Automated paper-trading bot for MES Break & Retest.
+Automated multi-strategy trading bot.
 
 How it works:
     - APScheduler fires every 15 min (Mon–Fri, 9am–4pm ET)
-    - Each tick: authenticates to Tradovate → checks daily drawdown → fetches
-      live fundamentals → reads current MES position → runs B&R signal engine →
-      runs risk checks → places bracket order if approved → sends Telegram alert
+    - Each tick: authenticates → checks daily drawdown → fetches fundamentals →
+      calls the orchestrator, which queries the strategy registry, fetches data
+      per timeframe, runs each eligible strategy, resolves direction conflicts,
+      and places bracket orders for all approved signals
     - A second job at 15:30 ET sends the daily summary
     - On startup, records session_start_equity once so drawdown is tracked
+
+Strategies are enabled/disabled in .env:
+    STRATEGY_BRT_ENABLED=true
+    STRATEGY_VWAP_MR_ENABLED=false
+    STRATEGY_DONCHIAN_ENABLED=false
+    STRATEGY_ORB_ENABLED=false
+    STRATEGY_RSI2_ENABLED=false
+
+Adding a new strategy: subclass AbstractStrategy, decorate with @register,
+and set its STRATEGY_<NAME>_ENABLED=true in .env. No changes to this file needed.
 
 Usage:
     python scheduler.py               # demo account (PAPER_TRADING=true)
     PAPER_TRADING=false python scheduler.py  # live — only when you're ready
-
-Prerequisites:
-    - .env contains TRADOVATE_USERNAME, TRADOVATE_PASSWORD, TRADOVATE_CID,
-      TRADOVATE_SEC, TRADOVATE_APP_ID, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
-    - pip install -r requirements.txt
 
 Stopping:
     Ctrl-C   — graceful shutdown (sends Telegram alert)
@@ -35,33 +41,24 @@ from apscheduler.triggers.cron import CronTrigger
 import pytz
 
 from config import settings
-from data.fetcher import fetch_historical
 from data.fundamentals import get_live_fundamentals, print_fundamentals
-from data.trade_log import init_db, log_trade, log_event, update_bot_state, get_daily_summary
-from data.validator import validate_ohlcv, DataQualityError, data_quality_summary
-from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
+from data.trade_log import init_db, log_event, update_bot_state, get_daily_summary
+from strategy.break_retest import get_latest_brt_signal, prepare_break_retest
 from strategy.vwap_reversion import prepare_vwap_reversion, get_latest_vwap_mr_signal
 from strategy.volume_profile import vpoc_trend
 from strategy.regime import get_regime_params, get_regime_info
 from risk.manager import (
-    RiskBlock, check_all, check_daily_drawdown,
-    load_open_trades_from_db, clear_stale_open_trades, check_breakeven_moves,
-    record_trade_outcome,
+    RiskBlock, check_daily_drawdown,
+    load_open_trades_from_db, check_breakeven_moves,
 )
-from strategy.cot_filter import get_cot_bias, COT_BIAS_SHORT
-from monitor.performance import brt_monitor
 from execution.router import router as _router
 from monitor.alerts import (
     notify_signal_check,
-    notify_brt_signal,
-    notify_vwap_signal,
-    notify_entry,
-    notify_exit,
-    notify_risk_block,
     notify_daily_summary,
     notify_error,
     notify_llm_advisory,
 )
+from orchestrator import run_all_symbols
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -234,19 +231,20 @@ def run_signal_check() -> None:
     Core job. Runs every 15 min, Mon–Fri, 9am–4pm ET.
 
     Sequence:
-        1. Connect IBKR
+        1. Authenticate all brokers
         2. Get account equity → init session if new day
         3. Check daily drawdown (raises RiskBlock if hit)
-        4. Fetch live fundamentals
-        5. Get current MES position
-        6. Fetch 1h price data, run B&R signal engine
-        7. If signal != 0, run risk checks → place bracket order
-        8. Send Telegram summary
-        9. Disconnect
+        4. Fetch live fundamentals → determine regime
+        5. Call orchestrator.run_all_symbols() — runs every eligible strategy
+           across every active symbol, resolves conflicts, places orders
+        6. Update dashboard state (SQLite) + send Telegram summary
+        7. Run AI advisory in background thread
     """
-    logger.info("─── Hourly signal check starting ───")
-    try: log_event("Signal check started", "INFO")
-    except Exception: pass
+    logger.info("─── Signal check starting ───")
+    try:
+        log_event("Signal check started", "INFO")
+    except Exception:
+        pass
 
     try:
         _ensure_auth()
@@ -262,7 +260,7 @@ def run_signal_check() -> None:
         fundamentals = get_live_fundamentals()
         print_fundamentals(fundamentals)
 
-        # ── Regime detection — drives adaptive BRT parameters ─────────────
+        # ── Regime detection ──────────────────────────────────────────────
         regime_info   = get_regime_info(fundamentals.get("vix"))
         regime_params = get_regime_params(fundamentals.get("vix"))
 
@@ -276,270 +274,125 @@ def run_signal_check() -> None:
             log_event(
                 f"Regime: {regime_info['regime']}",
                 "INFO",
-                f"VIX {fundamentals.get('vix', '?'):.1f} — {regime_info['description']}"
+                f"VIX {fundamentals.get('vix', 0):.1f} — {regime_info['description']}",
             )
-        except Exception: pass
+        except Exception:
+            pass
 
-        # ── Current MES position ──────────────────────────────────────────
-        open_position = _router.get_position("MES")
-        logger.info(f"Open MES position: {open_position:+d} contracts")
-
-        # ── Price data (with data quality validation) ─────────────────────
-        df = fetch_historical("MES", period="60d", timeframe_minutes=15)
-
-        # Validate data before running signal engine.
-        # Bad ticks or stale data can generate false signals on corrupted bars.
+        # ── Breakeven stop management (checked before new entries) ────────
         try:
-            validate_ohlcv(df, timeframe_minutes=15)
-        except DataQualityError as dqe:
-            logger.warning(f"Data quality check failed — skipping tick: {dqe}")
-            try:
-                log_event("Data quality check failed — tick skipped", "WARN", str(dqe))
-            except Exception:
-                pass
-            return  # skip this tick entirely — don't trade on bad data
+            mes_pos = _router.get_position("MES")
+            if mes_pos != 0:
+                # Quick 15-min fetch for live price
+                from data.fetcher import fetch_historical as _fh
+                _df = _fh("MES", period="5d", timeframe_minutes=15)
+                live_prices = {"MES": float(_df["close"].iloc[-1])}
+                check_breakeven_moves(live_prices, _router)
+        except Exception as be_err:
+            logger.debug(f"Breakeven check skipped: {be_err}")
 
-        df = prepare_break_retest(df, long_only=True, regime_params=regime_params)
-
-        # ── Strategy signals ──────────────────────────────────────────
-        brt_signal     = get_latest_brt_signal(df)
-        vpoc_migration = vpoc_trend(df)  # "RISING" / "FALLING" / "NEUTRAL"
-
-        signal      = brt_signal
-        strategy_id = "BRT" if brt_signal.get("signal", 0) != 0 else "FLAT"
-
-        # ── Telegram: fire immediately on any BRT signal (pre-execution) ──────
-        if strategy_id == "BRT":
-            notify_brt_signal(brt_signal)
-
-        # ── VWAP MR signal check (parallel, dry-run alert only) ───────────────
-        try:
-            df_vwap      = prepare_vwap_reversion(df.copy())
-            vwap_signal  = get_latest_vwap_mr_signal(df_vwap)
-            if vwap_signal.get("signal", 0) != 0:
-                notify_vwap_signal(vwap_signal)
-                logger.info(
-                    f"[VWAP_MR] Signal={vwap_signal['signal']:+d}  "
-                    f"ADX={vwap_signal['adx']:.1f}  RSI5={vwap_signal['rsi5']:.1f}  "
-                    f"Close={vwap_signal['close']:.2f}"
-                )
-        except Exception as vwap_err:
-            logger.warning(f"VWAP_MR signal check failed (non-fatal): {vwap_err}")
-
-        logger.info(
-            f"[{strategy_id}] Signal={signal.get('signal', 0):+d}  "
-            f"ADX={signal.get('adx', 0):.1f}  "
-            f"RSI={signal.get('rsi', 0):.1f}  "
-            f"Close={signal.get('close', 0):.2f}"
+        # ── Orchestrator — runs all eligible strategies across all symbols ─
+        executed = run_all_symbols(
+            fundamentals  = fundamentals,
+            regime_info   = regime_info,
+            regime_params = regime_params,
+            equity        = equity,
+            session       = _session,
         )
+        if executed:
+            tags = [t["symbol"] + "/" + t["strategy"] for t in executed]
+            logger.info(f"Tick executed {len(executed)} trade(s): {tags}")
 
-        # ── Push live state snapshot to SQLite for dashboard ──────────────
+        # ── Dashboard state snapshot (BRT signal for the Live tab) ────────
         try:
-            daily = get_daily_summary()
+            from data.fetcher import fetch_historical as _fh
+            from data.validator import validate_ohlcv, DataQualityError
+            _df15 = _fh("MES", period="60d", timeframe_minutes=15)
+            validate_ohlcv(_df15, timeframe_minutes=15)
+            _df15 = prepare_break_retest(_df15, long_only=True, regime_params=regime_params)
+            brt_signal     = get_latest_brt_signal(_df15)
+            vpoc_migration = vpoc_trend(_df15)
+        except Exception:
+            brt_signal     = {}
+            vpoc_migration = "NEUTRAL"
+
+        try:
+            daily   = get_daily_summary()
             et_hour = datetime.now(ET).hour
             update_bot_state({
-                "brt_state":    "NEUTRAL",  # refined below if in a watch state
-                "close":        signal.get("close"),
-                "ema20":        signal.get("ema20"),
-                "atr":          signal.get("atr"),
-                "adx":          signal.get("adx"),
-                "rsi":          signal.get("rsi"),
-                "vwap":         signal.get("vwap"),
-                "pdh":          signal.get("pdh"),
-                "pdl":          signal.get("pdl"),
-                "swing_hi":     signal.get("swing_hi"),
-                "swing_lo":     signal.get("swing_lo"),
-                "prior_poc":    signal.get("prior_poc"),
-                "prior_vah":    signal.get("prior_vah"),
-                "prior_val":    signal.get("prior_val"),
-                "eqh":          signal.get("eqh"),
-                "eql":          signal.get("eql"),
-                "fvg_bull_low":  signal.get("fvg_bull_low"),
-                "fvg_bull_high": signal.get("fvg_bull_high"),
-                "fvg_bear_low":  signal.get("fvg_bear_low"),
-                "fvg_bear_high": signal.get("fvg_bear_high"),
+                "brt_state":     "NEUTRAL",
+                "close":         brt_signal.get("close"),
+                "ema20":         brt_signal.get("ema20"),
+                "atr":           brt_signal.get("atr"),
+                "adx":           brt_signal.get("adx"),
+                "rsi":           brt_signal.get("rsi"),
+                "vwap":          brt_signal.get("vwap"),
+                "pdh":           brt_signal.get("pdh"),
+                "pdl":           brt_signal.get("pdl"),
+                "swing_hi":      brt_signal.get("swing_hi"),
+                "swing_lo":      brt_signal.get("swing_lo"),
+                "prior_poc":     brt_signal.get("prior_poc"),
+                "prior_vah":     brt_signal.get("prior_vah"),
+                "prior_val":     brt_signal.get("prior_val"),
+                "eqh":           brt_signal.get("eqh"),
+                "eql":           brt_signal.get("eql"),
+                "fvg_bull_low":  brt_signal.get("fvg_bull_low"),
+                "fvg_bull_high": brt_signal.get("fvg_bull_high"),
+                "fvg_bear_low":  brt_signal.get("fvg_bear_low"),
+                "fvg_bear_high": brt_signal.get("fvg_bear_high"),
                 "vpoc_migration": vpoc_migration,
-                "regime":       regime_info["regime"],
-                "vix":          fundamentals.get("vix"),
-                "yield_10y":    fundamentals.get("yield_10y"),
-                "dxy":          fundamentals.get("dxy"),
+                "regime":        regime_info["regime"],
+                "vix":           fundamentals.get("vix"),
+                "yield_10y":     fundamentals.get("yield_10y"),
+                "dxy":           fundamentals.get("dxy"),
                 "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
-                "session_open": 1 if 9 <= et_hour < 16 else 0,
-                "daily_pnl":    daily.get("total_pnl", 0.0),
-                "trades_today": daily.get("total", 0),
-                "adx_min":      regime_info.get("adx_min"),
-                "sl_buffer":    regime_info.get("sl_buffer"),
-                "tp_rr":        regime_info.get("tp_rr"),
+                "session_open":  1 if 9 <= et_hour < 16 else 0,
+                "daily_pnl":     daily.get("total_pnl", 0.0),
+                "trades_today":  daily.get("total", 0),
+                "adx_min":       regime_info.get("adx_min"),
+                "sl_buffer":     regime_info.get("sl_buffer"),
+                "tp_rr":         regime_info.get("tp_rr"),
                 "max_retest_bars": regime_info.get("max_retest_bars"),
-                "headwinds":    fundamentals.get("headwinds", []),
-                "tailwinds":    fundamentals.get("tailwinds", []),
+                "headwinds":     fundamentals.get("headwinds", []),
+                "tailwinds":     fundamentals.get("tailwinds", []),
                 "paper_trading": 1 if settings.PAPER_TRADING else 0,
             })
         except Exception as db_err:
             logger.warning(f"State DB write failed (non-fatal): {db_err}")
 
-        # ── Telegram hourly summary (smart — only fires if noteworthy) ────
-        notify_signal_check(signal, fundamentals)
+        # ── Telegram summary (smart — only fires if noteworthy) ───────────
+        notify_signal_check(brt_signal, fundamentals)
 
-        # ── AI Advisory (background thread — never delays execution) ────────
-        # Uses LLM_ADVISORY_ENABLED (separate from LLM_SELECTOR_ENABLED).
-        # Advisory runs for market intelligence + logging regardless of whether
-        # the strategy selector is active. Decoupled intentionally.
+        # ── AI Advisory (background — never delays execution) ─────────────
         if settings.LLM_ADVISORY_ENABLED:
             _market_ctx = {
-                "close":         brt_signal.get("close"),
-                "ema20":         brt_signal.get("ema20"),
-                "vwap":          brt_signal.get("vwap"),
-                "adx":           brt_signal.get("adx"),
-                "rsi":           brt_signal.get("rsi"),
-                "atr":           brt_signal.get("atr"),
-                "vix":           fundamentals.get("vix"),
-                "yield_10y":     fundamentals.get("yield_10y"),
-                "dxy":           fundamentals.get("dxy"),
-                "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
-                "regime":        regime_info["regime"],
+                "close":          brt_signal.get("close"),
+                "ema20":          brt_signal.get("ema20"),
+                "vwap":           brt_signal.get("vwap"),
+                "adx":            brt_signal.get("adx"),
+                "rsi":            brt_signal.get("rsi"),
+                "atr":            brt_signal.get("atr"),
+                "vix":            fundamentals.get("vix"),
+                "yield_10y":      fundamentals.get("yield_10y"),
+                "dxy":            fundamentals.get("dxy"),
+                "spy_vol_ratio":  fundamentals.get("spy_vol_ratio"),
+                "regime":         regime_info["regime"],
                 "vpoc_migration": vpoc_migration,
-                "headwinds":     fundamentals.get("headwinds", []),
-                "tailwinds":     fundamentals.get("tailwinds", []),
-                "session_hour":  datetime.now(ET).hour,
+                "headwinds":      fundamentals.get("headwinds", []),
+                "tailwinds":      fundamentals.get("tailwinds", []),
+                "session_hour":   datetime.now(ET).hour,
             }
-            _sig_dir = {1: "LONG", -1: "SHORT", 0: "FLAT"}.get(
-                signal.get("signal", 0), "FLAT"
-            )
-            _trigger = "SIGNAL" if strategy_id != "FLAT" else "HOURLY"
+            _sig_val   = brt_signal.get("signal", 0)
+            _sig_dir   = {1: "LONG", -1: "SHORT", 0: "FLAT"}.get(_sig_val, "FLAT")
+            _strat_id  = "BRT" if _sig_val != 0 else "FLAT"
+            _trigger   = "SIGNAL" if _sig_val != 0 else "HOURLY"
             threading.Thread(
                 target=_run_advisory,
-                args=(_market_ctx, strategy_id, _sig_dir, _trigger),
+                args=(_market_ctx, _strat_id, _sig_dir, _trigger),
                 daemon=True,
             ).start()
 
-        # ── Breakeven stop management (checked each tick before new entries) ─
-        try:
-            live_prices = {"MES": float(signal.get("close", 0))}
-            check_breakeven_moves(live_prices, _router)
-        except Exception as be_err:
-            logger.debug(f"Breakeven check skipped: {be_err}")
-
-        # ── COT directional bias filter ────────────────────────────────────
-        cot_bias = "NEUTRAL"
-        if settings.COT_FILTER_ENABLED:
-            try:
-                cot_bias = get_cot_bias("MES")
-                if cot_bias != "NEUTRAL":
-                    logger.info(f"COT bias: {cot_bias}")
-            except Exception as cot_err:
-                logger.debug(f"COT fetch failed (non-fatal, defaulting NEUTRAL): {cot_err}")
-                cot_bias = "NEUTRAL"
-
-        # ── Entry logic ───────────────────────────────────────────────────
-        if signal.get("signal", 0) != 0:
-            # COT filter: block long entries when Leveraged Funds at extreme net long
-            # (contrarian SHORT signal — they are the last buyer, not the first).
-            if signal.get("signal", 0) == 1 and cot_bias == COT_BIAS_SHORT:
-                logger.info(
-                    "COT filter: LONG entry blocked — Leveraged Funds at extreme net long "
-                    "(contrarian short signal). Waiting for COT to normalize."
-                )
-                try:
-                    log_event(
-                        "COT filter blocked LONG entry", "WARN",
-                        "Leveraged Funds at extreme net long — contrarian short bias"
-                    )
-                except Exception:
-                    pass
-            else:
-                try:
-                    # Pre-entry performance gate — pause if rolling metrics in PAUSE state
-                    perf_status = brt_monitor.get_status()
-                    if perf_status == "PAUSE":
-                        raise RiskBlock(
-                            f"Performance monitor: new entries paused. "
-                            f"Rolling win rate has been below threshold for sustained period. "
-                            f"Review rolling metrics before resuming."
-                        )
-
-                    # FIX: check_all signature is (symbol, fundamentals, equity, position, signal)
-                    contracts = check_all(
-                        "MES", fundamentals, equity, open_position, signal,
-                        trades_today=_session["trades_today"],
-                    )
-
-                    direction   = int(signal["signal"])
-                    entry_price = float(signal["close"])
-                    sl_price    = float(signal["stop_loss"])
-                    tp_price    = float(signal["take_profit"])
-                    level_type  = signal.get("level_type", "")
-                    retest_lvl  = float(signal.get("retest_level", entry_price))
-                    sweep_flag  = signal.get("liquidity_sweep", 0)
-
-                    logger.info(
-                        f"Placing {'LONG' if direction == 1 else 'SHORT'} bracket "
-                        f"x{contracts} | entry≈{entry_price:.2f} "
-                        f"SL={sl_price:.2f} TP={tp_price:.2f}"
-                        f"  COT={cot_bias}"
-                        f"{'  [SWEEP ✓]' if sweep_flag else ''}"
-                    )
-
-                    _router.place_bracket_order(
-                        symbol    = "MES",
-                        qty       = contracts,
-                        sl_price  = sl_price,
-                        tp_price  = tp_price,
-                        direction = direction,
-                    )
-
-                    # Log activity event
-                    try:
-                        log_event(
-                            f"{'LONG' if direction == 1 else 'SHORT'} entry — "
-                            f"{level_type} @ {entry_price:.2f}",
-                            "TRADE",
-                            f"SL {sl_price:.2f} | TP {tp_price:.2f} | "
-                            f"{contracts} contract(s) | COT={cot_bias}",
-                        )
-                    except Exception:
-                        pass
-
-                    # Log trade to SQLite (includes cot_bias for attribution analysis)
-                    try:
-                        log_trade(
-                            direction       = "LONG" if direction == 1 else "SHORT",
-                            level_type      = level_type,
-                            entry_price     = entry_price,
-                            stop_loss       = sl_price,
-                            take_profit     = tp_price,
-                            contracts       = contracts,
-                            regime          = regime_info.get("regime"),
-                            vix             = fundamentals.get("vix"),
-                            liquidity_sweep = int(sweep_flag),
-                            cot_bias        = cot_bias,
-                        )
-                    except Exception as db_err:
-                        logger.warning(f"Trade log write failed (non-fatal): {db_err}")
-
-                    # Update session counters
-                    _session["trades_today"] += 1
-
-                    notify_entry(
-                        contracts    = contracts,
-                        entry_price  = entry_price,
-                        sl_price     = sl_price,
-                        tp_price     = tp_price,
-                        level_type   = level_type,
-                        retest_level = retest_lvl,
-                    )
-
-                except RiskBlock as rb:
-                    logger.warning(f"Risk block: {rb}")
-                    notify_risk_block(str(rb))
-                    try:
-                        log_event(f"Risk block: {rb}", "WARN")
-                    except Exception:
-                        pass
-
     except EquityUnavailable as eu:
-        # Equity could not be confirmed — skip this tick, do not trade.
-        # This is intentional behaviour, not an error. Next tick will retry.
         logger.warning(f"Tick skipped — equity unavailable: {eu}")
         try:
             log_event("Tick skipped — equity unavailable", "WARN", str(eu))
@@ -547,8 +400,8 @@ def run_signal_check() -> None:
             pass
 
     except RiskBlock as rb:
-        # Daily drawdown limit hit — block for the rest of the session
         logger.warning(f"Session-level risk block: {rb}")
+        from monitor.alerts import notify_risk_block
         notify_risk_block(str(rb))
 
     except Exception as e:
@@ -650,13 +503,17 @@ def main() -> None:
     except Exception as e:
         logger.warning(f"Could not restore open trades on startup: {e}")
 
-    logger.info("=" * 50)
-    logger.info("  TRADEZ — Automated Paper Trading Bot")
-    logger.info(f"  Mode   : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
-    logger.info(f"  Broker : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
-    logger.info(f"  Symbol : MES  (BRT — Break & Retest, 15min)")
-    logger.info(f"  Session:  9:02 – 15:47 ET  (Mon–Fri, every 15min)")
-    logger.info("=" * 50)
+    from strategy.registry import get_all as _get_all_strats
+    enabled = [s.name for s in _get_all_strats() if settings.STRATEGY_ENABLED.get(s.name)]
+    logger.info("=" * 55)
+    logger.info("  TRADEZ — Multi-Strategy Automated Trading Bot")
+    logger.info(f"  Mode       : {'PAPER' if settings.PAPER_TRADING else '*** LIVE ***'}")
+    logger.info(f"  Broker     : Tradovate ({'DEMO' if settings.PAPER_TRADING else 'LIVE'})")
+    logger.info(f"  Strategies : {', '.join(enabled) if enabled else 'none enabled'}")
+    logger.info(f"  Symbols    : {', '.join(settings.ACTIVE_SYMBOLS)}")
+    logger.info(f"  Conflict   : {settings.STRATEGY_CONFLICT_RESOLUTION}")
+    logger.info(f"  Session    :  9:02 – 15:47 ET  (Mon–Fri, every 15min)")
+    logger.info("=" * 55)
 
     scheduler = BlockingScheduler(timezone=ET)
 

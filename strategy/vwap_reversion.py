@@ -253,3 +253,42 @@ def get_latest_vwap_mr_signal(df: pd.DataFrame) -> dict:
         "adx":         float(last["adx"]),
         "reason":      reason,
     }
+
+
+# ── Strategy class (self-registers with orchestrator) ─────────────────────────
+
+from strategy.base import AbstractStrategy
+from strategy.registry import register
+
+
+@register
+class VWAPReversionStrategy(AbstractStrategy):
+    """
+    VWAP Mean Reversion — MES ranging-day strategy.
+    Runs on 15-minute candles (same fetch as BRT; works on 5m or 15m).
+    Only eligible when ADX < VWAP_MR_ADX_MAX — pure ranging conditions.
+    Complements BRT (fires on opposite regime days).
+    """
+
+    name              = "VWAP_MR"
+    timeframe_minutes = settings.BRT_TIMEFRAME   # shares 15-min data with BRT
+    priority          = 20
+
+    def __init__(self):
+        from config import settings as _s
+        self.symbols = _s.STRATEGY_SYMBOLS.get("VWAP_MR", ["MES"])
+
+    def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
+        # VWAP MR fails in trending/high-vol regimes — the ADX filter inside the signal
+        # engine handles the per-bar check; here we gate at the regime level.
+        if regime in ("NO_TRADE", "HIGH_VOL"):
+            return False
+        start = settings.VWAP_MR_SESSION_START
+        end   = settings.VWAP_MR_SESSION_END
+        return start <= session_hour < end
+
+    def prepare(self, df, **kwargs):
+        return prepare_vwap_reversion(df)
+
+    def get_signal(self, df, **kwargs) -> dict:
+        return get_latest_vwap_mr_signal(df)

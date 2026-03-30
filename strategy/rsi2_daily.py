@@ -178,3 +178,48 @@ def get_latest_rsi2_signal(df: pd.DataFrame) -> dict:
         "bars_held":   None,
         "reason":      reason,
     }
+
+
+# ── Strategy class (self-registers with orchestrator) ─────────────────────────
+
+from strategy.base import AbstractStrategy
+from strategy.registry import register
+from config import settings as _cfg
+
+
+@register
+class RSI2Strategy(AbstractStrategy):
+    """
+    RSI(2) Daily Mean Reversion — US stocks / ETFs via Alpaca.
+    Daily candles. Only eligible once per day at session open.
+    Note: signal=-2 (exit) is filtered to 0 here — exits are managed by Alpaca
+    position tracking, not treated as new entries by the orchestrator.
+    """
+
+    name              = "RSI2"
+    timeframe_minutes = 1440   # daily
+    priority          = 35
+
+    def __init__(self):
+        self.symbols = _cfg.STRATEGY_SYMBOLS.get("RSI2", ["SPY", "QQQ", "IWM"])
+
+    def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
+        if regime == "NO_TRADE":
+            return False
+        # VIX gate — RSI2 underperforms in extreme fear
+        vix = fundamentals.get("vix", 0) or 0
+        if vix > RSI2_VIX_MAX:
+            return False
+        # Daily strategy — only evaluate at session open
+        return 9 <= session_hour < 10
+
+    def prepare(self, df, **kwargs):
+        return prepare_rsi2(df)
+
+    def get_signal(self, df, **kwargs) -> dict:
+        sig = get_latest_rsi2_signal(df)
+        # -2 is an exit signal, not a short entry — normalise to 0
+        if sig.get("signal") == -2:
+            sig["signal"] = 0
+        sig.setdefault("level_type", "RSI2")
+        return sig
