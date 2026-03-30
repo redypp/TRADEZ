@@ -119,9 +119,11 @@ def register_trade(
     entry:       float,
     stop:        float,
     tp:          float,
-    point_value: float,
+    point_value: float | None = None,
 ) -> None:
     """Call after a bracket order is successfully submitted."""
+    if point_value is None:
+        point_value = _get_point_value(symbol)
     dollar_risk = abs(entry - stop) * qty * point_value
     trade = OpenTrade(
         symbol=symbol, direction=direction, qty=qty,
@@ -324,6 +326,7 @@ def check_all(
     signal:             dict,
     point_value:        float | None = None,
     trades_today:       int          = 0,
+    size_boost:         float        = 1.0,
 ) -> int:
     """
     Run all pre-trade checks and return the approved contract/share count.
@@ -335,6 +338,10 @@ def check_all(
         open_position_size : Current position in symbol (0 = flat)
         signal             : Dict with at minimum 'close' and 'stop_loss'
         point_value        : Dollar value per point (None = use settings default for symbol)
+        trades_today       : Number of trades already taken today
+        size_boost         : Multiplier from news/LLM confluence (1.0 = normal, 1.25 = 25% more)
+                             Applied on top of the risk-budget sizing — still hard-capped at
+                             MAX_TRADE_RISK so a boosted trade can never exceed the per-trade limit.
 
     Returns:
         Number of contracts/shares to trade (always >= 1 if checks pass)
@@ -348,7 +355,8 @@ def check_all(
     _check_open_position(symbol, open_position_size)
     _check_portfolio_heat(account_equity)
     point_val  = point_value or _get_point_value(symbol)
-    contracts  = _check_position_size(symbol, signal, account_equity, point_val)
+    contracts  = _check_position_size(symbol, signal, account_equity, point_val,
+                                      size_boost=size_boost)
     return contracts
 
 
@@ -425,11 +433,18 @@ def _check_position_size(
     signal:      dict,
     equity:      float,
     point_value: float,
+    size_boost:  float = 1.0,
 ) -> int:
     """
     Compute contract/share count from risk budget.
     Raises RiskBlock if even 1 contract exceeds the per-trade risk cap.
     Returns approved count (>= 1).
+
+    size_boost: multiplier from news/LLM confluence confluence (1.0 = normal).
+        Applied to the risk_budget before division. The per-unit dollar risk
+        (dollar_risk_1c) stays fixed — only the number of units scales up.
+        Hard cap (MAX_TRADE_RISK) still applies to 1 unit independently,
+        preventing boosted entries from breaching absolute risk limits.
     """
     if signal.get("stop_loss") is None or signal.get("close") is None:
         raise RiskBlock("Signal missing stop_loss or close price.")
@@ -447,8 +462,13 @@ def _check_position_size(
         scale *= late_factor
         logger.debug(f"Late-session size factor applied ({late_factor}x after {late_hour}:00 ET)")
 
-    risk_budget   = equity * settings.RISK_PER_TRADE * scale
-    max_risk_hard = equity * settings.MAX_TRADE_RISK
+    # Apply news/LLM size boost — clamped to 2x for safety
+    effective_boost = min(2.0, max(1.0, float(size_boost)))
+    if effective_boost != 1.0:
+        logger.info(f"Size boost applied: {effective_boost:.2f}x (news/LLM confluence)")
+
+    risk_budget    = equity * settings.RISK_PER_TRADE * scale * effective_boost
+    max_risk_hard  = equity * settings.MAX_TRADE_RISK
     points_at_risk = abs(signal["close"] - signal["stop_loss"])
     dollar_risk_1c = points_at_risk * point_value
 
@@ -466,8 +486,8 @@ def _check_position_size(
 
     logger.info(
         f"Risk check passed | {symbol} | equity=${equity:,.2f} | "
-        f"budget=${risk_budget:.2f} | risk/unit=${dollar_risk_1c:.2f} | "
-        f"units={contracts}"
+        f"budget=${risk_budget:.2f} (boost={effective_boost:.2f}x) | "
+        f"risk/unit=${dollar_risk_1c:.2f} | units={contracts}"
     )
     return contracts
 

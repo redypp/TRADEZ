@@ -16,3 +16,6 @@ uvicorn[standard]>=0.29.0
 # Multi-LLM Strategy Selector
 anthropic>=0.40.0      # Claude orchestrator
 openai>=1.30.0         # GPT-4 analyst + Grok (xAI uses OpenAI-compatible API)
+
+# News monitor
+feedparser>=6.0.0      # RSS feed parsing (Reuters, CNBC, MarketWatch, CoinDesk)

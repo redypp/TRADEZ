@@ -953,6 +953,25 @@ render = function(data) {
   if (data?.settings) renderStackRisk(data.settings);
 };
 
+// ── Strategy selector dropdown ────────────────────────────────────────────────
+function toggleStrategyMenu() {
+  const sel = $('strategy-selector');
+  if (sel) sel.classList.toggle('open');
+}
+// Close when clicking outside
+document.addEventListener('click', e => {
+  const sel = $('strategy-selector');
+  if (sel && !sel.contains(e.target)) sel.classList.remove('open');
+});
+
+// ── Sync regime name to Strategies tab header ─────────────────────────────────
+const _origRenderRegime = renderRegime;
+renderRegime = function(regime, state) {
+  _origRenderRegime(regime, state);
+  const nameEl = $('rsh-regime-name');
+  if (nameEl && regime?.current) nameEl.textContent = regime.current.replace('_', ' ');
+};
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 initChart();
 connectWS();

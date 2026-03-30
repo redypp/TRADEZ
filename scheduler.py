@@ -31,10 +31,13 @@ Stopping:
 """
 
 import logging
+import os
 import sys
 import threading
 import time
 from datetime import datetime, date
+
+os.makedirs("logs", exist_ok=True)
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -67,7 +70,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("tradez.log"),
+        logging.FileHandler("logs/tradez.log"),
     ],
 )
 logger = logging.getLogger("scheduler")
@@ -91,9 +94,10 @@ def _run_advisory(market_ctx: dict, strategy_id: str,
     """
     Runs in a daemon thread — never blocks the execution path.
     Fetches LLM advisory then pushes it to:
-        1. SQLite bot_state (dashboard picks it up via WebSocket)
-        2. SQLite events feed (dashboard activity log)
-        3. Telegram (optional — only on SIGNAL or PRE_MARKET triggers)
+        1. monitor/llm_gate advisory cache (used as quality gate on next tick)
+        2. SQLite bot_state (dashboard picks it up via WebSocket)
+        3. SQLite events feed (dashboard activity log)
+        4. Telegram (optional — only on SIGNAL or PRE_MARKET triggers)
     """
     try:
         from strategy.llm_advisory import get_advisory
@@ -107,13 +111,20 @@ def _run_advisory(market_ctx: dict, strategy_id: str,
             trigger=trigger,
         )
 
-        # 1. Persist in bot_state for dashboard
+        # 1. Store in LLM gate cache so next tick can use it as a quality gate
+        try:
+            from monitor.llm_gate import update_advisory
+            update_advisory(advisory)
+        except Exception:
+            pass
+
+        # 2. Persist in bot_state for dashboard
         try:
             update_bot_state({"llm_advisory": _json.dumps(advisory)})
         except Exception:
             pass
 
-        # 2. Log to events feed
+        # 3. Log to events feed
         flags_str = " | ".join(advisory.get("risk_flags", [])) or "none"
         try:
             log_event(
@@ -124,7 +135,7 @@ def _run_advisory(market_ctx: dict, strategy_id: str,
         except Exception:
             pass
 
-        # 3. Telegram — only for signals and pre-market (not every quiet hour)
+        # 4. Telegram — only for signals and pre-market (not every quiet hour)
         if trigger in ("SIGNAL", "PRE_MARKET"):
             try:
                 notify_llm_advisory(advisory)
@@ -279,6 +290,59 @@ def run_signal_check() -> None:
         except Exception:
             pass
 
+        # ── LLM strategy selector (pre-execution, cached for orchestrator) ─
+        # Runs Grok + GPT-4 in parallel, then Claude synthesizes the result.
+        # Total latency ~12-20s — completes before orchestrator executes signals.
+        # Result is stored in monitor/llm_gate.py for zero-latency reads later.
+        # Only runs if LLM_SELECTOR_ENABLED=true in .env.
+        if settings.LLM_SELECTOR_ENABLED and regime_info.get("can_trade", True):
+            try:
+                from strategy.llm_selector import get_llm_strategy_selection
+                from monitor.llm_gate import update_llm_selection
+
+                # Build market context for the selector
+                _llm_ctx = {
+                    "close":          None,   # filled after BRT signal computed below
+                    "ema20":          None,
+                    "vwap":           None,
+                    "adx":            None,
+                    "rsi":            None,
+                    "atr":            None,
+                    "vix":            fundamentals.get("vix"),
+                    "yield_10y":      fundamentals.get("yield_10y"),
+                    "dxy":            fundamentals.get("dxy"),
+                    "spy_vol_ratio":  fundamentals.get("spy_vol_ratio"),
+                    "regime":         regime_info["regime"],
+                    "vpoc_migration": None,
+                    "headwinds":      fundamentals.get("headwinds", []),
+                    "tailwinds":      fundamentals.get("tailwinds", []),
+                    "brt_signal":     0,
+                    "orb_signal":     0,
+                    "session_hour":   datetime.now(ET).hour,
+                }
+
+                logger.info("[LLMSelector] Running ensemble selection (Grok + GPT-4 + Claude)…")
+                llm_result = get_llm_strategy_selection(_llm_ctx)
+                update_llm_selection(llm_result)
+
+                logger.info(
+                    f"[LLMSelector] strategy={llm_result.get('strategy')} "
+                    f"bias={llm_result.get('bias')} "
+                    f"conf={llm_result.get('confidence', 0):.2f} "
+                    f"source={llm_result.get('source', '?')}"
+                )
+                try:
+                    log_event(
+                        f"LLM: {llm_result.get('strategy')} / {llm_result.get('bias')}",
+                        "AI",
+                        f"conf={llm_result.get('confidence', 0):.2f} — {llm_result.get('reasoning', '')[:80]}",
+                    )
+                except Exception:
+                    pass
+
+            except Exception as llm_err:
+                logger.warning(f"[LLMSelector] Failed (non-fatal, proceeding without gate): {llm_err}")
+
         # ── Breakeven stop management (checked before new entries) ────────
         try:
             mes_pos = _router.get_position("MES")
@@ -362,6 +426,22 @@ def run_signal_check() -> None:
 
         # ── Telegram summary (smart — only fires if noteworthy) ───────────
         notify_signal_check(brt_signal, fundamentals)
+
+        # ── Update LLM selector context with real signal data for next tick ─
+        # After we have brt_signal, we can store richer context in the gate cache
+        # so the NEXT tick's LLM selector gets better technical data.
+        if settings.LLM_SELECTOR_ENABLED and brt_signal:
+            try:
+                from monitor.llm_gate import get_llm_selection, update_llm_selection
+                _cached = get_llm_selection()
+                if _cached:
+                    # Annotate the cached selection with the actual signal observed
+                    _cached["_brt_signal_close"] = brt_signal.get("close")
+                    _cached["_brt_signal_adx"]   = brt_signal.get("adx")
+                    _cached["_brt_signal_rsi"]   = brt_signal.get("rsi")
+                    update_llm_selection(_cached)
+            except Exception:
+                pass
 
         # ── AI Advisory (background — never delays execution) ─────────────
         if settings.LLM_ADVISORY_ENABLED:

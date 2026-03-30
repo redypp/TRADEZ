@@ -8,6 +8,7 @@ from strategy.indicators import add_indicators
 from strategy.signals import generate_signals, get_latest_signal
 from strategy.break_retest import prepare_break_retest, get_latest_brt_signal
 from strategy.donchian import prepare_donchian, get_latest_donchian_signal
+from monitor.news_monitor import NewsMonitor, get_active_news_signal
 
 os.makedirs("logs", exist_ok=True)
 
@@ -74,6 +75,39 @@ def run_mes_brt(fundamentals: dict) -> dict:
                 logger.info("NOTE: CAUTIOUS regime — trade but stay selective")
             latest["blocked_reason"] = None
 
+    # ── News signal filter ─────────────────────────────────────────────
+    if latest["signal"] != 0:
+        news_sig = get_active_news_signal()
+        if news_sig:
+            brt_direction = "BULLISH" if latest["signal"] == 1 else "BEARISH"
+            news_direction = news_sig["direction"]
+            conf = news_sig["confidence"]
+
+            if news_direction != "NEUTRAL" and news_direction != brt_direction:
+                # News opposes BRT signal — block entry
+                logger.warning(
+                    f"SIGNAL BLOCKED — News: {news_direction} (conf={conf:.0%}) "
+                    f"opposes BRT {brt_direction} | {news_sig['headline'][:60]}"
+                )
+                from monitor.alerts import notify_news_trade_block
+                notify_news_trade_block(
+                    brt_direction=brt_direction,
+                    news_direction=news_direction,
+                    confidence=conf,
+                    headline=news_sig["headline"],
+                    reason=news_sig["reason"],
+                )
+                latest["signal"] = 0
+                latest["blocked_reason"] = f"News {news_direction} ({conf:.0%} conf)"
+            elif news_direction == brt_direction:
+                # News confirms BRT signal — note it
+                logger.info(
+                    f"NEWS CONFIRMS BRT {brt_direction} — {news_direction} "
+                    f"(conf={conf:.0%}) | {news_sig['headline'][:60]}"
+                )
+                latest["news_confirmed"] = True
+                latest["news_signal"] = news_sig
+
     latest["regime"] = fundamentals.get("regime", "UNKNOWN")
     return latest
 
@@ -125,6 +159,10 @@ def main():
     logger.info(f"Mode     : {'PAPER' if settings.PAPER_TRADING else 'LIVE'}")
     logger.info(f"Symbols  : {settings.SYMBOLS}")
     logger.info(f"Risk/trade: {settings.RISK_PER_TRADE * 100}%")
+
+    # ── News monitor (background thread) ────────────────────────────────
+    news_monitor = NewsMonitor()
+    news_monitor.start()
 
     # ── Live fundamentals (MES-specific) ────────────────────────────────
     logger.info("Fetching live market fundamentals...")

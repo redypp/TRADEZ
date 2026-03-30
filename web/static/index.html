@@ -32,6 +32,39 @@
   </nav>
 
   <div class="tb-right">
+    <div class="strategy-selector" id="strategy-selector">
+      <button class="strategy-btn" id="strategy-btn" onclick="toggleStrategyMenu()">
+        <span class="strat-dot"></span>
+        <span class="strat-label">BRT</span>
+        <svg class="strat-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <div class="strategy-menu" id="strategy-menu">
+        <div class="sm-header">ACTIVE STRATEGY</div>
+        <button class="sm-item active">
+          <div class="sm-item-dot"></div>
+          <div>
+            <div class="sm-item-name">Break &amp; Retest</div>
+            <div class="sm-item-sub">MES · 15-min · Live</div>
+          </div>
+          <span class="sm-check">✓</span>
+        </button>
+        <div class="sm-divider"></div>
+        <div class="sm-item disabled">
+          <div class="sm-item-dot dim"></div>
+          <div>
+            <div class="sm-item-name dim">VWAP Mean Reversion</div>
+            <div class="sm-item-sub">Coming soon</div>
+          </div>
+        </div>
+        <div class="sm-item disabled">
+          <div class="sm-item-dot dim"></div>
+          <div>
+            <div class="sm-item-name dim">Opening Range Breakout</div>
+            <div class="sm-item-sub">Coming soon</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <span id="conn-pill" class="conn-pill connecting">● CONNECTING</span>
     <span id="mode-badge" class="mode-badge paper">PAPER</span>
     <span id="clock" class="tb-clock">--:--:-- ET</span>
@@ -218,8 +251,40 @@
 <!-- ══════════════════════════════════════ TAB: STRATEGIES -->
 <div id="tab-strategies" class="tab-panel">
   <div class="page-header">
-    <h1 class="page-title">Market Regimes</h1>
-    <p class="page-sub">The strategy adapts its parameters in real-time based on VIX. Five regimes control aggression, position sizing, and entry criteria.</p>
+    <h1 class="page-title">Break &amp; Retest</h1>
+    <p class="page-sub">One strategy. Five market conditions. Parameters adapt automatically to VIX — the strategy itself never changes.</p>
+  </div>
+
+  <!-- Strategy definition card -->
+  <div class="card brt-def-card">
+    <div class="brt-def-inner">
+      <div class="brt-def-main">
+        <div class="brt-def-badge">ACTIVE STRATEGY</div>
+        <h2 class="brt-def-title">Break &amp; Retest (BRT)</h2>
+        <p class="brt-def-body">Price breaks a key structural level with conviction — confirmed by above-average volume and a meaningful candle body. The bot then waits for price to return and retest that same level. Entry fires on the retest candle, with stop loss placed below the level and take profit at a fixed R:R multiple.</p>
+        <div class="brt-def-pillrow">
+          <span class="brt-pill">MES · Micro E-mini S&amp;P</span>
+          <span class="brt-pill">15-min candles</span>
+          <span class="brt-pill">Intraday · 9:30–15:00 ET</span>
+          <span class="brt-pill">1–2.5R target</span>
+        </div>
+      </div>
+      <div class="brt-def-steps">
+        <div class="bds-step"><span class="bds-num">1</span><div><div class="bds-name">Break</div><div class="bds-desc">Candle closes through a key level with volume &gt; 1× avg and body &gt; ATR threshold</div></div></div>
+        <div class="bds-step"><span class="bds-num">2</span><div><div class="bds-name">Watch</div><div class="bds-desc">Bot enters WATCHING state — monitors for a retest within the max-retest-bar window</div></div></div>
+        <div class="bds-step"><span class="bds-num">3</span><div><div class="bds-name">Retest</div><div class="bds-desc">Price returns to the level ± ATR tolerance. EMA20, ADX, RSI and VSA filters must pass</div></div></div>
+        <div class="bds-step"><span class="bds-num">4</span><div><div class="bds-name">Entry</div><div class="bds-desc">Market order fires. SL below/above level. TP at regime R:R. Breakeven at 1:1.</div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Regime section header -->
+  <div class="regime-section-header">
+    <div>
+      <div class="rsh-title">Adaptive Regimes</div>
+      <div class="rsh-sub">VIX drives automatic parameter switching — 2 consecutive ticks required before any regime change (hysteresis)</div>
+    </div>
+    <div id="rsh-current" class="rsh-current">Current: <span id="rsh-regime-name">—</span></div>
   </div>
 
   <div class="regime-grid">
@@ -588,10 +653,10 @@
         <label class="lab-label">Strategy</label>
         <select id="lab-strategy" class="lab-select">
           <option value="BRT">Break &amp; Retest (BRT)</option>
-          <option value="ORB">Opening Range Breakout (ORB)</option>
-          <option value="DONCHIAN">Donchian Breakout (Turtle)</option>
-          <option value="RSI2">RSI(2) Daily</option>
-          <option value="VWAP_MR">VWAP Mean Reversion</option>
+          <option value="ORB" disabled>Opening Range Breakout — coming soon</option>
+          <option value="DONCHIAN" disabled>Donchian Breakout — coming soon</option>
+          <option value="RSI2" disabled>RSI(2) Daily — coming soon</option>
+          <option value="VWAP_MR" disabled>VWAP Mean Reversion — coming soon</option>
         </select>
       </div>
       <div class="lab-field">
@@ -807,6 +872,9 @@
         <div class="scmd-label">Deploy update</div>
         <code class="scmd-code">cd /root/TRADEZ &amp;&amp; git pull origin feature/brt-mes-live-risk &amp;&amp; systemctl restart tradez-scheduler tradez-dashboard</code>
       </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://cloud.digitalocean.com" target="_blank" rel="noopener">↗ DigitalOcean Dashboard</a>
+      </div>
     </div>
 
     <!-- Tradovate -->
@@ -832,6 +900,10 @@
         <span class="stag stag-amber">PAPER MODE ACTIVE</span>
         <span class="stag stag-blue">REST + Polling</span>
       </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://trader.tradovate.com" target="_blank" rel="noopener">↗ Tradovate Trader</a>
+        <a class="stack-link-btn" href="https://app.tradovate.com" target="_blank" rel="noopener">↗ API Console</a>
+      </div>
     </div>
 
     <!-- Market Data -->
@@ -855,6 +927,10 @@
         <span class="stag stag-green">No API key required</span>
         <span class="stag stag-amber">60d intraday limit</span>
       </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://finance.yahoo.com/quote/ES%3DF" target="_blank" rel="noopener">↗ ES=F Quote</a>
+        <a class="stack-link-btn" href="https://finance.yahoo.com/quote/%5EVIX" target="_blank" rel="noopener">↗ VIX Quote</a>
+      </div>
     </div>
 
     <!-- Telegram -->
@@ -877,6 +953,10 @@
       <div class="stack-tag-row">
         <span class="stag stag-green">Active</span>
         <span class="stag stag-blue">HTTP polling</span>
+      </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://t.me/BotFather" target="_blank" rel="noopener">↗ BotFather</a>
+        <a class="stack-link-btn" href="https://core.telegram.org/bots/api" target="_blank" rel="noopener">↗ Bot API Docs</a>
       </div>
     </div>
 
@@ -902,6 +982,11 @@
         <span class="stag stag-amber">Optional</span>
         <span class="stag stag-blue">~5–15 calls/day</span>
       </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://console.anthropic.com" target="_blank" rel="noopener">↗ Anthropic Console</a>
+        <a class="stack-link-btn" href="https://platform.openai.com" target="_blank" rel="noopener">↗ OpenAI Platform</a>
+        <a class="stack-link-btn" href="https://console.x.ai" target="_blank" rel="noopener">↗ xAI Console</a>
+      </div>
     </div>
 
     <!-- GitHub -->
@@ -922,6 +1007,10 @@
       </div>
       <div class="stack-tag-row">
         <span class="stag stag-green">Active</span>
+      </div>
+      <div class="stack-link-row">
+        <a class="stack-link-btn" href="https://github.com/redypp/TRADEZ" target="_blank" rel="noopener">↗ GitHub Repo</a>
+        <a class="stack-link-btn" href="https://github.com/redypp/TRADEZ/tree/feature/brt-mes-live-risk" target="_blank" rel="noopener">↗ Active Branch</a>
       </div>
     </div>
 

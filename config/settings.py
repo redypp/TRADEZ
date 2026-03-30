@@ -57,6 +57,40 @@ XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 # Minimum LLM confidence to act on a recommendation (below this → FLAT)
 LLM_MIN_CONFIDENCE = float(os.getenv("LLM_MIN_CONFIDENCE", "0.60"))
 
+# ── LLM Gate — execution-path integration ─────────────────────────────────────
+#
+# LLM_GATE_ENABLED
+#   True: LLM selector result (cached at tick start) gates trade execution.
+#   The selector runs Grok + GPT-4 + Claude at the start of each tick.
+#   If the ensemble says FLAT or opposes the algo direction with high confidence,
+#   the trade is blocked. If it confirms direction with high confidence, size is boosted.
+#   Enable ONLY after LLM_ADVISORY_ENABLED has been running for 50+ trades so you
+#   can verify the advisory track record before giving it execution power.
+#
+# LLM_GATE_CONFIDENCE_MIN
+#   Minimum LLM ensemble confidence to override the algo. Below this the gate is
+#   neutral (passes through). Higher = more conservative (less LLM interference).
+#
+# LLM_QUALITY_GATE_ENABLED
+#   True: use the PREVIOUS tick's advisory signal_quality + macro_supports as a
+#   soft gate. If quality=LOW AND macro_supports=False → skip the trade.
+#   Safe to enable alongside LLM_ADVISORY_ENABLED (uses cached prior result).
+#
+# NEWS_SIZE_BOOST_FACTOR
+#   When news strongly CONFIRMS the algo's signal direction (confidence >=
+#   NEWS_BOOST_CONFIDENCE_MIN), multiply the computed contract count by this factor.
+#   Capped at 2x total (combined with LLM boost). Default 1.25 = 25% extra size.
+#   Set to 1.0 to disable the boost (news still blocks opposing trades).
+#
+# NEWS_BOOST_CONFIDENCE_MIN
+#   Minimum Grok news confidence to apply the size boost. Default 0.80 = only
+#   act on high-conviction news assessments.
+LLM_GATE_ENABLED          = os.getenv("LLM_GATE_ENABLED",          "false").lower() == "true"
+LLM_GATE_CONFIDENCE_MIN   = float(os.getenv("LLM_GATE_CONFIDENCE_MIN",   "0.70"))
+LLM_QUALITY_GATE_ENABLED  = os.getenv("LLM_QUALITY_GATE_ENABLED",  "false").lower() == "true"
+NEWS_SIZE_BOOST_FACTOR    = float(os.getenv("NEWS_SIZE_BOOST_FACTOR",    "1.25"))
+NEWS_BOOST_CONFIDENCE_MIN = float(os.getenv("NEWS_BOOST_CONFIDENCE_MIN", "0.80"))
+
 # Trading mode
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 

@@ -79,6 +79,7 @@ def notify_entry(
     tp_price:      float,
     level_type:    str,
     retest_level:  float,
+    direction:     str = "LONG",
 ) -> None:
     """Send alert when a trade is entered."""
     risk_pts  = round(abs(entry_price - sl_price), 2)
@@ -86,10 +87,11 @@ def notify_entry(
     rr        = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
     risk_usd  = round(risk_pts * settings.BRT_POINT_VALUE * contracts, 2)
 
-    ts = datetime.now().strftime("%H:%M ET")
+    ts   = datetime.now().strftime("%H:%M ET")
+    icon = "📈" if direction == "LONG" else "📉"
 
     msg = (
-        f"📈 <b>MES LONG ENTRY — {ts}</b>\n"
+        f"{icon} <b>MES {direction} ENTRY — {ts}</b>\n"
         f"Contracts : {contracts}\n"
         f"Entry     : {entry_price:.2f}\n"
         f"Stop Loss : {sl_price:.2f}  (−{risk_pts} pts)\n"
@@ -99,7 +101,7 @@ def notify_entry(
         f"Level     : {level_type} @ {retest_level:.2f}"
     )
     _send(msg)
-    logger.info(f"ENTRY alert sent: MES x{contracts} @ {entry_price:.2f}")
+    logger.info(f"ENTRY alert sent: MES {direction} x{contracts} @ {entry_price:.2f}")
 
 
 def notify_exit(
@@ -233,6 +235,88 @@ def notify_daily_summary(
     _send(msg)
 
 
+def notify_news_trade_signal(
+    direction:  str,
+    confidence: float,
+    reason:     str,
+    headline:   str,
+    source:     str,
+) -> None:
+    """Alert when Grok has assessed a directional trade signal from breaking news."""
+    icon = "📈" if direction == "BULLISH" else "📉"
+    ts = datetime.now().strftime("%H:%M ET")
+    conf_pct = f"{confidence:.0%}"
+
+    msg = (
+        f"{icon} <b>NEWS TRADE SIGNAL [{direction}] — {ts}</b>\n"
+        f"Confidence : {conf_pct}\n"
+        f"Reason     : {reason}\n"
+        f"Source     : {headline[:70]}\n"
+        f"<i>Bot will block opposing BRT entries for {settings.NEWS_SIGNAL_EXPIRY_MINUTES} min</i>"
+    )
+    _send(msg)
+    logger.info(f"News trade signal alert: {direction} {conf_pct} — {headline[:50]}")
+
+
+def notify_news_trade_block(
+    brt_direction:  str,
+    news_direction: str,
+    confidence:     float,
+    headline:       str,
+    reason:         str,
+) -> None:
+    """Alert when a BRT entry is blocked because news opposes it."""
+    ts = datetime.now().strftime("%H:%M ET")
+    msg = (
+        f"🚫 <b>ENTRY BLOCKED BY NEWS — {ts}</b>\n"
+        f"BRT wanted  : {brt_direction}\n"
+        f"News signal : {news_direction} ({confidence:.0%} conf)\n"
+        f"Reason      : {reason}\n"
+        f"News        : {headline[:70]}"
+    )
+    _send(msg)
+    logger.info(f"News trade block alert: BRT {brt_direction} blocked by {news_direction} news")
+
+
+def notify_breaking_news(
+    source:   str,
+    headline: str,
+    summary:  str,
+    impact:   str,
+    assets:   str,
+    link:     str = "",
+) -> None:
+    """Send immediate Telegram alert when breaking news is detected."""
+    impact_icon = {"HIGH": "🚨", "MEDIUM": "⚡"}.get(impact, "📰")
+    ts = datetime.now().strftime("%H:%M ET")
+
+    lines = [
+        f"{impact_icon} <b>BREAKING NEWS [{impact}] — {ts}</b>",
+        f"<b>{headline}</b>",
+    ]
+
+    if summary:
+        lines += ["", summary]
+
+    if assets:
+        lines.append(f"\nAssets : {assets}")
+
+    lines.append(f"Source : {source}")
+
+    if link:
+        lines.append(f"<a href=\"{link}\">Read more</a>")
+
+    if impact == "HIGH":
+        from config import settings
+        halt_min = getattr(settings, "NEWS_HALT_MINUTES", 15)
+        halt_enabled = getattr(settings, "NEWS_HALT_ENABLED", False)
+        if halt_enabled:
+            lines.append(f"\n⏸ New entries paused for {halt_min} min")
+
+    _send("\n".join(lines))
+    logger.info(f"Breaking news alert sent: [{impact}] {headline}")
+
+
 def notify_error(error: str) -> None:
     """Send alert on unhandled errors."""
     ts  = datetime.now().strftime("%H:%M ET")
@@ -277,3 +361,64 @@ def notify_llm_advisory(advisory: dict) -> None:
         lines += ["", f"Watch : {watch}"]
 
     _send("\n".join(lines))
+
+
+def notify_llm_gate_block(
+    strategy_name: str,
+    direction:     str,
+    llm_strategy:  str,
+    llm_bias:      str,
+    confidence:    float,
+    reasoning:     str,
+) -> None:
+    """Alert when the LLM gate blocks a trade the algo wanted to take."""
+    ts = datetime.now().strftime("%H:%M ET")
+    msg = (
+        f"🤖🚫 <b>LLM GATE BLOCKED — {ts}</b>\n"
+        f"Algo wanted  : {strategy_name} {direction}\n"
+        f"LLM decision : {llm_strategy} / {llm_bias} ({confidence:.0%} conf)\n"
+        f"Reason       : {reasoning[:100]}"
+    )
+    _send(msg)
+    logger.info(f"LLM gate block alert: {strategy_name} {direction} blocked — LLM={llm_strategy}/{llm_bias}")
+
+
+def notify_llm_quality_gate_block(
+    strategy_name:  str,
+    direction:      str,
+    signal_quality: str,
+    macro_supports: bool,
+    risk_flags:     list,
+) -> None:
+    """Alert when the advisory quality gate blocks a trade."""
+    ts    = datetime.now().strftime("%H:%M ET")
+    flags = " | ".join(risk_flags[:3]) if risk_flags else "none"
+    msg = (
+        f"🤖🚫 <b>AI QUALITY GATE BLOCKED — {ts}</b>\n"
+        f"Algo wanted   : {strategy_name} {direction}\n"
+        f"Signal quality: {signal_quality}\n"
+        f"Macro supports: {'Yes' if macro_supports else 'No'}\n"
+        f"Risk flags    : {flags}"
+    )
+    _send(msg)
+    logger.info(f"AI quality gate block: {strategy_name} {direction} | quality={signal_quality} macro={macro_supports}")
+
+
+def notify_news_size_boost(
+    direction:  str,
+    confidence: float,
+    boost:      float,
+    contracts:  int,
+    headline:   str,
+) -> None:
+    """Alert when a news confirmation boosts position size."""
+    ts = datetime.now().strftime("%H:%M ET")
+    msg = (
+        f"📰📈 <b>NEWS SIZE BOOST — {ts}</b>\n"
+        f"Direction  : {direction}\n"
+        f"News conf  : {confidence:.0%}  →  size {boost:.2f}x\n"
+        f"Contracts  : {contracts}\n"
+        f"News       : {headline[:70]}"
+    )
+    _send(msg)
+    logger.info(f"News size boost: {direction} {boost:.2f}x ({confidence:.0%} conf)")

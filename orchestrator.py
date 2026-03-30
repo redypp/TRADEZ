@@ -37,7 +37,7 @@ from config import settings
 from data.fetcher import fetch_historical
 from data.validator import validate_ohlcv, DataQualityError
 from data.trade_log import log_trade, log_event
-from risk.manager import RiskBlock, check_all
+from risk.manager import RiskBlock, check_all, register_trade
 from execution.router import router as _router
 from monitor.alerts import (
     notify_entry,
@@ -336,6 +336,15 @@ def _execute_signal(
     """
     Run risk checks and place a bracket order for one approved signal.
     Returns a result dict on success, None if blocked or failed.
+
+    Gate order (each can veto independently):
+        1. COT filter              — CFTC positioning extremes
+        2. Performance monitor     — rolling win rate (BRT only)
+        3. News halt               — HIGH-impact breaking news pause window
+        4. News signal gate        — Grok directional assessment vs algo direction
+        5. LLM selector gate       — ensemble (Grok+GPT-4+Claude) strategy/bias gate
+        6. Advisory quality gate   — prior-tick signal_quality + macro_supports
+        7. Risk checks             — equity, drawdown, heat, position sizing
     """
     from strategy.cot_filter import get_cot_bias, COT_BIAS_SHORT
 
@@ -345,6 +354,7 @@ def _execute_signal(
     tp_price    = float(sig.get("take_profit") or 0)
     level_type  = sig.get("level_type", strategy.name)
     sweep_flag  = int(sig.get("liquidity_sweep", 0))
+    direction_str = "LONG" if direction == 1 else "SHORT"
 
     # ── COT filter (MES longs) ────────────────────────────────────────────────
     cot_bias = "NEUTRAL"
@@ -383,6 +393,227 @@ def _execute_signal(
         except Exception:
             pass
 
+    # ── News halt gate ────────────────────────────────────────────────────────
+    # If a HIGH-impact news event was detected recently and NEWS_HALT_ENABLED=true,
+    # all new entries are paused for NEWS_HALT_MINUTES.
+    try:
+        from monitor.news_monitor import is_news_halt_active
+        if is_news_halt_active():
+            logger.info(
+                f"[{symbol}] {strategy.name}: news halt active — "
+                f"skipping entry (HIGH-impact event window)"
+            )
+            try:
+                log_event(
+                    f"News halt — {symbol} {strategy.name} entry skipped",
+                    "WARN",
+                    "HIGH-impact news event active",
+                )
+            except Exception:
+                pass
+            return None
+    except Exception:
+        pass  # news monitor not available — proceed
+
+    # ── News signal gate + size boost ─────────────────────────────────────────
+    # Gate 1: if Grok assessed a directional signal from breaking news and it
+    #   OPPOSES the algo direction → block entry.
+    # Gate 2: if news CONFIRMS algo direction with high confidence → apply
+    #   a size boost (NEWS_SIZE_BOOST_FACTOR) as a reward for confluence.
+    news_boost = 1.0
+    news_sig   = None
+
+    if settings.NEWS_TRADE_ENABLED:
+        try:
+            from monitor.news_monitor import get_active_news_signal
+            news_sig = get_active_news_signal()
+        except Exception:
+            pass
+
+    if news_sig:
+        news_dir = news_sig.get("direction", "NEUTRAL")
+        news_conf = float(news_sig.get("confidence", 0))
+        news_algo_dir = "BULLISH" if direction == 1 else "BEARISH"
+
+        if news_dir not in ("NEUTRAL", "") and news_dir != news_algo_dir:
+            # News opposes signal — block
+            logger.warning(
+                f"[{symbol}] {strategy.name}: NEWS BLOCK — "
+                f"{news_dir} (conf={news_conf:.0%}) opposes {direction_str} | "
+                f"{news_sig.get('headline', '')[:60]}"
+            )
+            try:
+                from monitor.alerts import notify_news_trade_block
+                notify_news_trade_block(
+                    brt_direction  = news_algo_dir,
+                    news_direction = news_dir,
+                    confidence     = news_conf,
+                    headline       = news_sig.get("headline", ""),
+                    reason         = news_sig.get("reason", ""),
+                )
+            except Exception:
+                pass
+            try:
+                log_event(
+                    f"News block — {symbol} {direction_str}",
+                    "WARN",
+                    f"{news_dir} ({news_conf:.0%} conf): {news_sig.get('headline','')[:80]}",
+                )
+            except Exception:
+                pass
+            return None
+
+        elif news_dir == news_algo_dir:
+            logger.info(
+                f"[{symbol}] NEWS CONFIRMS {direction_str} "
+                f"(conf={news_conf:.0%}) | {news_sig.get('headline','')[:60]}"
+            )
+            # Apply size boost if confidence is high enough
+            if news_conf >= settings.NEWS_BOOST_CONFIDENCE_MIN:
+                news_boost = settings.NEWS_SIZE_BOOST_FACTOR
+                logger.info(
+                    f"[{symbol}] News size boost: {news_boost:.2f}x "
+                    f"(conf={news_conf:.0%} >= threshold {settings.NEWS_BOOST_CONFIDENCE_MIN:.0%})"
+                )
+
+    # ── LLM selector gate ─────────────────────────────────────────────────────
+    # The LLM selector (Grok + GPT-4 + Claude ensemble) was pre-run at the start
+    # of this tick and cached in monitor/llm_gate.py. Reading the cache is instant.
+    #
+    # Blocking rules (LLM_GATE_ENABLED=true + confidence >= LLM_GATE_CONFIDENCE_MIN):
+    #   - LLM says FLAT → skip entry
+    #   - LLM bias opposes algo direction → skip entry
+    # Boost rule:
+    #   - LLM bias confirms direction with confidence >= 0.75 → small size boost
+    llm_boost = 1.0
+
+    if settings.LLM_GATE_ENABLED:
+        try:
+            from monitor.llm_gate import get_llm_selection
+            llm = get_llm_selection()
+        except Exception:
+            llm = {}
+
+        llm_strategy = llm.get("strategy", "")
+        llm_bias     = llm.get("bias", "NEUTRAL")
+        llm_conf     = float(llm.get("confidence", 0.0))
+        llm_reason   = llm.get("reasoning", "")
+
+        if llm_strategy and llm_conf >= settings.LLM_GATE_CONFIDENCE_MIN:
+
+            if llm_strategy == "FLAT":
+                logger.info(
+                    f"[{symbol}] {strategy.name}: LLM gate — FLAT "
+                    f"(conf={llm_conf:.0%}) | {llm_reason[:80]}"
+                )
+                try:
+                    from monitor.alerts import notify_llm_gate_block
+                    notify_llm_gate_block(
+                        strategy_name = strategy.name,
+                        direction     = direction_str,
+                        llm_strategy  = llm_strategy,
+                        llm_bias      = llm_bias,
+                        confidence    = llm_conf,
+                        reasoning     = llm_reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    log_event(
+                        f"LLM gate blocked {symbol} {direction_str}",
+                        "WARN",
+                        f"LLM=FLAT ({llm_conf:.0%}): {llm_reason[:80]}",
+                    )
+                except Exception:
+                    pass
+                return None
+
+            elif llm_bias not in ("NEUTRAL", "") and llm_bias != direction_str:
+                logger.info(
+                    f"[{symbol}] {strategy.name}: LLM gate — bias {llm_bias} "
+                    f"opposes {direction_str} (conf={llm_conf:.0%})"
+                )
+                try:
+                    from monitor.alerts import notify_llm_gate_block
+                    notify_llm_gate_block(
+                        strategy_name = strategy.name,
+                        direction     = direction_str,
+                        llm_strategy  = llm_strategy,
+                        llm_bias      = llm_bias,
+                        confidence    = llm_conf,
+                        reasoning     = llm_reason,
+                    )
+                except Exception:
+                    pass
+                try:
+                    log_event(
+                        f"LLM gate blocked {symbol} {direction_str}",
+                        "WARN",
+                        f"LLM bias={llm_bias} ({llm_conf:.0%}): {llm_reason[:80]}",
+                    )
+                except Exception:
+                    pass
+                return None
+
+            elif llm_bias == direction_str and llm_conf >= 0.75:
+                # LLM confirms — small reward boost (scaled linearly from 0.75 to 1.0 conf)
+                llm_boost = round(1.0 + (llm_conf - 0.75) * 0.6, 2)  # max +15% at conf=1.0
+                logger.info(
+                    f"[{symbol}] LLM confirms {direction_str} (conf={llm_conf:.0%}) "
+                    f"— size boost {llm_boost:.2f}x"
+                )
+
+    # ── Advisory quality gate ─────────────────────────────────────────────────
+    # Uses the advisory result from the PREVIOUS tick (stored in llm_gate cache).
+    # If signal_quality=LOW AND macro_supports=False → skip.
+    # This uses recent AI assessment without any execution-path latency.
+    if settings.LLM_QUALITY_GATE_ENABLED:
+        try:
+            from monitor.llm_gate import get_advisory_result
+            adv = get_advisory_result()
+        except Exception:
+            adv = {}
+
+        if adv:
+            quality        = adv.get("signal_quality", "N/A")
+            macro_supports = adv.get("macro_supports")
+            risk_flags     = adv.get("risk_flags", [])
+
+            if quality == "LOW" and macro_supports is False:
+                logger.info(
+                    f"[{symbol}] {strategy.name}: advisory quality gate blocked — "
+                    f"quality={quality} macro_supports={macro_supports} "
+                    f"flags={risk_flags}"
+                )
+                try:
+                    from monitor.alerts import notify_llm_quality_gate_block
+                    notify_llm_quality_gate_block(
+                        strategy_name  = strategy.name,
+                        direction      = direction_str,
+                        signal_quality = quality,
+                        macro_supports = bool(macro_supports),
+                        risk_flags     = risk_flags,
+                    )
+                except Exception:
+                    pass
+                try:
+                    log_event(
+                        f"Advisory quality gate blocked {symbol} {direction_str}",
+                        "WARN",
+                        f"quality={quality} macro_supports={macro_supports} flags={risk_flags}",
+                    )
+                except Exception:
+                    pass
+                return None
+
+    # ── Combined size boost (news × LLM, capped at 2.0x) ─────────────────────
+    combined_boost = min(2.0, news_boost * llm_boost)
+    if combined_boost != 1.0:
+        logger.info(
+            f"[{symbol}] Combined size boost: {combined_boost:.2f}x "
+            f"(news={news_boost:.2f}x LLM={llm_boost:.2f}x)"
+        )
+
     try:
         open_pos  = _router.get_position(symbol)
         contracts = check_all(
@@ -392,15 +623,30 @@ def _execute_signal(
             open_pos,
             sig,
             trades_today=session.get("trades_today", 0),
+            size_boost=combined_boost,
         )
 
-        direction_str = "LONG" if direction == 1 else "SHORT"
+        boost_tag = f"  [BOOST {combined_boost:.2f}x]" if combined_boost > 1.0 else ""
         logger.info(
             f"[{symbol}] {strategy.name} → placing {direction_str} "
             f"x{contracts} | entry≈{entry_price:.2f} "
             f"SL={sl_price:.2f} TP={tp_price:.2f} COT={cot_bias}"
-            f"{'  [SWEEP ✓]' if sweep_flag else ''}"
+            f"{'  [SWEEP ✓]' if sweep_flag else ''}{boost_tag}"
         )
+
+        # Send news size boost Telegram alert (when applicable)
+        if news_boost > 1.0 and news_sig:
+            try:
+                from monitor.alerts import notify_news_size_boost
+                notify_news_size_boost(
+                    direction  = direction_str,
+                    confidence = float(news_sig.get("confidence", 0)),
+                    boost      = combined_boost,
+                    contracts  = contracts,
+                    headline   = news_sig.get("headline", ""),
+                )
+            except Exception:
+                pass
 
         _router.place_bracket_order(
             symbol    = symbol,
@@ -410,7 +656,21 @@ def _execute_signal(
             direction = direction,
         )
 
+        # ── Register open trade for portfolio heat + breakeven tracking ───────
+        try:
+            register_trade(
+                symbol    = symbol,
+                direction = direction,
+                qty       = contracts,
+                entry     = entry_price,
+                stop      = sl_price,
+                tp        = tp_price,
+            )
+        except Exception as reg_err:
+            logger.warning(f"[{symbol}] register_trade failed (non-fatal): {reg_err}")
+
         # ── Logging ───────────────────────────────────────────────────────────
+        boost_note = f"  boost={combined_boost:.2f}x" if combined_boost > 1.0 else ""
         try:
             log_event(
                 f"{direction_str} entry — {level_type} @ {entry_price:.2f}",
@@ -418,7 +678,7 @@ def _execute_signal(
                 (
                     f"Strategy={strategy.name}  "
                     f"SL={sl_price:.2f}  TP={tp_price:.2f}  "
-                    f"{contracts} contract(s)  COT={cot_bias}"
+                    f"{contracts} contract(s)  COT={cot_bias}{boost_note}"
                 ),
             )
         except Exception:
@@ -449,6 +709,7 @@ def _execute_signal(
             tp_price     = tp_price,
             level_type   = level_type,
             retest_level = float(sig.get("retest_level", entry_price)),
+            direction    = direction_str,
         )
 
         return {
