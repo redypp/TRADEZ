@@ -249,12 +249,12 @@ BRT_MAX_RETEST_BARS  = 40     # Max bars to wait for retest (40 × 15min = 10 ho
 BRT_BREAK_BUFFER     = 0.15   # ATR fraction close must exceed level to confirm break
 BRT_BREAK_BODY_MIN   = 0.20   # Break candle BODY must be >= X*ATR (lowered for 15-min bars)
 BRT_VOLUME_THRESHOLD = 1.0    # Break candle volume must be >= X * 20-bar vol avg (1.0 = no filter)
-BRT_ADX_MIN          = 18     # Minimum ADX — raised to 18 to filter morning chop (backtest: ADX>25 = 1.60 PF)
+BRT_ADX_MIN          = 14     # Minimum ADX — moderate filter (18 was too tight, cut afternoon trades)
 # RSI: only block entries if RSI shows clear freefall or extreme overextension
 BRT_RSI_PERIOD       = 9      # RSI period — 9 is more responsive on 15-min than 14
                               # RSI(14) smooths over 3.5h of bars; RSI(9) reflects
                               # current momentum better for intraday confirmation.
-BRT_RSI_LONG_MIN     = 45     # RSI floor: raised to 45 — neutral zone (40-60) loses; RSI>60 = 1.83 PF
+BRT_RSI_LONG_MIN     = 35     # RSI floor: 35 catches freefall without over-filtering afternoon momentum
 BRT_RSI_LONG_MAX     = 80     # RSI ceiling: skip if severely overextended
 BRT_RSI_SHORT_MIN    = 20     # RSI floor for shorts
 BRT_RSI_SHORT_MAX    = 70     # RSI ceiling for shorts
