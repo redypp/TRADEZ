@@ -38,18 +38,18 @@
       </button>
       <div class="strategy-menu" id="strategy-menu">
         <div class="sm-header">SWITCH STRATEGY</div>
-        <button class="sm-item active" id="sm-brt" onclick="switchStrategyTab('brt','BRT · MES')">
-          <div class="sm-item-dot live" title="LIVE"></div>
+        <button class="sm-item active" id="sm-brt" data-strat="BRT" onclick="switchStrategyTab('brt','BRT · MES')">
+          <div class="sm-item-dot inactive" title="Inactive"></div>
           <div>
-            <div class="sm-item-name">Break &amp; Retest <span class="sm-live-badge">LIVE</span></div>
+            <div class="sm-item-name">Break &amp; Retest <span class="sm-live-badge" style="display:none">LIVE</span></div>
             <div class="sm-item-sub">MES · 15-min · Trend-follow</div>
           </div>
         </button>
         <div class="sm-divider"></div>
-        <button class="sm-item" id="sm-swing" onclick="switchStrategyTab('swing','Momentum Swing · Equities')">
+        <button class="sm-item" id="sm-swing" data-strat="SWING" onclick="switchStrategyTab('swing','Momentum Swing · Equities')">
           <div class="sm-item-dot inactive" title="Inactive"></div>
           <div>
-            <div class="sm-item-name">Momentum Swing</div>
+            <div class="sm-item-name">Momentum Swing <span class="sm-live-badge" style="display:none">LIVE</span></div>
             <div class="sm-item-sub">US Equities · Daily · Breakout &amp; Pullback</div>
           </div>
         </button>
@@ -474,7 +474,106 @@
   </div>
 </div><!-- /tab-swing -->
 
+<!-- ═══════════════════════════════════ JOURNAL TAB ═══════════════════════════ -->
+<div id="tab-journal" class="tab-panel">
+  <div class="section-header">
+    <h2>Trade Journal</h2>
+    <p class="section-sub">Every trade logged by the bot — entry, exit, P&amp;L, and confluence checks.</p>
+  </div>
 
+  <!-- Stats bar -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Trades</div>
+      <div class="stat-value" id="jst-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Win Rate</div>
+      <div class="stat-value" id="jst-wr">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total P&amp;L</div>
+      <div class="stat-value" id="jst-pnl">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Sweep Win Rate</div>
+      <div class="stat-value" id="jst-sweep-wr">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Win</div>
+      <div class="stat-value green" id="jst-avg-win">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Loss</div>
+      <div class="stat-value red" id="jst-avg-loss">—</div>
+    </div>
+  </div>
+
+  <!-- Trade cards -->
+  <div id="journal-cards" class="journal-cards">
+    <div class="journal-empty">Loading trades…</div>
+  </div>
+</div><!-- /tab-journal -->
+
+<!-- ════════════════════════════════════ STACK TAB ════════════════════════════ -->
+<div id="tab-stack" class="tab-panel">
+  <div class="section-header">
+    <h2>Stack &amp; Risk</h2>
+    <p class="section-sub">Live risk configuration, broker connection status, and pre-flight checklist.</p>
+  </div>
+
+  <!-- Risk settings grid -->
+  <div class="stack-section">
+    <h3 class="stack-section-title">Risk Settings</h3>
+    <div class="srg-grid">
+      <div class="srg-item">
+        <span class="srg-label">Risk / Trade</span>
+        <span class="srg-val green" id="srg-risk-per-trade">—</span>
+      </div>
+      <div class="srg-item">
+        <span class="srg-label">Max Daily Drawdown</span>
+        <span class="srg-val green" id="srg-max-drawdown">—</span>
+      </div>
+      <div class="srg-item">
+        <span class="srg-label">Portfolio Heat Max</span>
+        <span class="srg-val" id="srg-portfolio-heat">—</span>
+      </div>
+      <div class="srg-item">
+        <span class="srg-label">BRT Take-Profit</span>
+        <span class="srg-val" id="srg-tp-rr">—</span>
+      </div>
+      <div class="srg-item">
+        <span class="srg-label">Trading Session</span>
+        <span class="srg-val" id="srg-session">—</span>
+      </div>
+      <div class="srg-item">
+        <span class="srg-label">Lunch Blackout</span>
+        <span class="srg-val" id="srg-lunch">—</span>
+      </div>
+    </div>
+    <div class="srg-source" id="risk-config-source"></div>
+  </div>
+
+  <!-- Broker / setup checklist -->
+  <div class="stack-section">
+    <div class="stack-section-header">
+      <h3 class="stack-section-title">Pre-Flight Checklist</h3>
+      <button class="btn-secondary" onclick="refreshStackTab()">↺ Refresh</button>
+    </div>
+    <div id="setup-checklist" class="setup-checklist">
+      <div class="sc-loading">Loading broker status…</div>
+    </div>
+  </div>
+
+  <!-- Broker connection detail -->
+  <div class="stack-section">
+    <h3 class="stack-section-title">Broker Status</h3>
+    <div class="broker-card">
+      <div class="broker-name">Tradovate (Futures)</div>
+      <div class="broker-status" id="stack-broker-status">Checking…</div>
+    </div>
+  </div>
+</div><!-- /tab-stack -->
 
 
 <script src="/static/app.js?v=2"></script>

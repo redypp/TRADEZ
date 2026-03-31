@@ -1307,6 +1307,10 @@ def api_settings():
         "brt_ema_period":       s.BRT_EMA_PERIOD,
         "brt_atr_period":       s.BRT_ATR_PERIOD,
         "symbols":              s.SYMBOLS,
+        "strategy_enabled": {
+            "BRT":   getattr(s, "STRATEGY_ENABLED", {}).get("BRT", True),
+            "SWING": getattr(s, "STRATEGY_ENABLED", {}).get("SWING", False),
+        },
     }
 
 

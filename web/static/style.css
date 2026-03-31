@@ -1336,6 +1336,8 @@ code {
 /* ── Swing Strategy ──────────────────────────────────────────── */
 .swing-inactive-chip { font-size: 10px; color: var(--text3); background: var(--s3);
                        padding: 3px 10px; border-radius: 6px; letter-spacing: 1px; }
+.swing-live-chip     { font-size: 10px; color: #0a0a0a; background: var(--green);
+                       padding: 3px 10px; border-radius: 6px; letter-spacing: 1px; font-weight: 700; }
 .swing-empty { font-size: 11px; color: var(--text3); font-style: italic; padding: 12px 0; }
 .swing-setup-row {
   padding: 12px 14px; border-radius: var(--r-sm); margin-bottom: 8px;

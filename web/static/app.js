@@ -967,8 +967,41 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 const _origRender = render;
 render = function(data) {
   _origRender(data);
-  if (data?.settings) renderStackRisk(data.settings);
+  if (data?.settings) {
+    renderStackRisk(data.settings);
+    updateStrategyBadges(data.settings.strategy_enabled);
+  }
 };
+
+function updateStrategyBadges(enabled) {
+  if (!enabled) return;
+  const brtLive   = !!enabled.BRT;
+  const swingLive = !!enabled.SWING;
+
+  // Dropdown dots + badges
+  const brtDot   = document.querySelector('.sm-item[data-strat="BRT"] .sm-item-dot');
+  const brtBadge = document.querySelector('.sm-item[data-strat="BRT"] .sm-live-badge');
+  const swDot    = document.querySelector('.sm-item[data-strat="SWING"] .sm-item-dot');
+  const swBadge  = document.querySelector('.sm-item[data-strat="SWING"] .sm-live-badge');
+
+  if (brtDot)   { brtDot.className   = 'sm-item-dot ' + (brtLive ? 'live' : 'inactive'); }
+  if (brtBadge) { brtBadge.textContent = brtLive ? 'LIVE' : 'INACTIVE'; brtBadge.style.display = brtLive ? '' : 'none'; }
+  if (swDot)    { swDot.className    = 'sm-item-dot ' + (swingLive ? 'live' : 'inactive'); }
+  if (swBadge)  { swBadge.textContent = swingLive ? 'LIVE' : 'INACTIVE'; swBadge.style.display = swingLive ? '' : 'none'; }
+
+  // Swing tab header chip
+  const chip = document.querySelector('#tab-swing .swing-inactive-chip');
+  if (chip) {
+    chip.textContent = swingLive ? 'LIVE' : 'INACTIVE';
+    chip.className   = swingLive ? 'sph-stat-chip swing-live-chip' : 'sph-stat-chip swing-inactive-chip';
+  }
+
+  // Swing tab empty-state message
+  const emptyMsg = document.querySelector('#tab-swing .swing-empty');
+  if (emptyMsg && swingLive) {
+    emptyMsg.textContent = 'Scanning universe… setups will appear here.';
+  }
+}
 
 // ── Strategy selector dropdown ────────────────────────────────────────────────
 function toggleStrategyMenu() {
