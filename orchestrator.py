@@ -590,7 +590,39 @@ def _execute_signal(
             quality        = adv.get("signal_quality", "N/A")
             macro_supports = adv.get("macro_supports")
             risk_flags     = adv.get("risk_flags", [])
+            trade_idea     = adv.get("trade_idea") or {}
+            idea_dir       = trade_idea.get("direction", "FLAT")
+            idea_conf      = float(trade_idea.get("confidence") or 0.0)
 
+            # ── Trade idea: oppose → block ─────────────────────────────────
+            if (idea_dir in ("LONG", "SHORT")
+                    and idea_conf >= settings.LLM_GATE_CONFIDENCE_MIN
+                    and idea_dir != direction_str):
+                logger.info(
+                    f"[{symbol}] {strategy.name}: LLM trade idea opposes signal "
+                    f"({idea_dir} vs {direction_str}, conf={idea_conf:.2f}) — blocked"
+                )
+                try:
+                    log_event(
+                        f"LLM idea blocked {symbol} {direction_str}",
+                        "WARN",
+                        f"LLM wants {idea_dir} (conf={idea_conf:.2f}) — thesis: {trade_idea.get('thesis','')}",
+                    )
+                except Exception:
+                    pass
+                return None
+
+            # ── Trade idea: align → size boost ─────────────────────────────
+            if (idea_dir == direction_str
+                    and idea_conf >= settings.LLM_GATE_CONFIDENCE_MIN):
+                idea_boost = 1.0 + (idea_conf - settings.LLM_GATE_CONFIDENCE_MIN)
+                llm_boost  = min(1.5, llm_boost * idea_boost)
+                logger.info(
+                    f"[{symbol}] {strategy.name}: LLM idea aligns ({idea_dir}, "
+                    f"conf={idea_conf:.2f}) — size boost {llm_boost:.2f}x"
+                )
+
+            # ── Standard quality gate ──────────────────────────────────────
             if quality == "LOW" and macro_supports is False:
                 logger.info(
                     f"[{symbol}] {strategy.name}: advisory quality gate blocked — "

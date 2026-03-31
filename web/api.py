@@ -127,6 +127,32 @@ def _run_screener_llm_worker():
                 except Exception as _e:
                     logger.debug(f"[ScreenerLLM] bot_state bridge skipped: {_e}")
 
+                # Standalone LLM watch alert: high-confidence trade idea with no
+                # mechanical signal → fire a Telegram alert so the trader knows.
+                try:
+                    idea     = result.get("trade_idea") or {}
+                    idea_dir = idea.get("direction", "FLAT")
+                    idea_conf = float(idea.get("confidence") or 0.0)
+                    if idea_dir in ("LONG", "SHORT") and idea_conf >= 0.70:
+                        from data.trade_log import log_event
+                        from monitor.alerts import send_telegram
+                        thesis = idea.get("thesis", "")
+                        entry_low  = idea.get("entry_low")
+                        entry_high = idea.get("entry_high")
+                        stop       = idea.get("stop")
+                        target     = idea.get("target")
+                        entry_str  = (f"{entry_low}–{entry_high}" if entry_low and entry_high
+                                      else str(entry_low or entry_high or "—"))
+                        msg = (
+                            f"🤖 LLM Watch — {idea_dir} MES\n"
+                            f"Entry: {entry_str} | Stop: {stop or '—'} | Target: {target or '—'}\n"
+                            f"Conf: {idea_conf:.0%} | {thesis}"
+                        )
+                        log_event(f"LLM Watch: {idea_dir} MES (conf={idea_conf:.0%})", "INFO", thesis)
+                        send_telegram(msg)
+                except Exception as _te:
+                    logger.debug(f"[ScreenerLLM] watch alert skipped: {_te}")
+
         except Exception as e:
             logger.error(f"[ScreenerLLM] Worker failed: {e}")
         finally:
@@ -991,25 +1017,32 @@ def api_screener():
         },
         "specialists": {
             "grok": {
-                "sentiment": _merged_adv.get("sentiment", advisory.get("grok_sentiment", "")),
-                "summary":   _merged_adv.get("grok_summary", advisory.get("grok_summary", "")),
+                "sentiment":   _merged_adv.get("sentiment", advisory.get("grok_sentiment", "")),
+                "summary":     _merged_adv.get("grok_summary", advisory.get("grok_summary", "")),
+                "trade_bias":  _merged_adv.get("grok_bias", ""),
+                "bias_reason": _merged_adv.get("grok_bias_reason", ""),
             },
             "gpt4": {
-                "summary":       _merged_adv.get("gpt4_summary", advisory.get("gpt4_summary", "")),
-                "signal_quality":_merged_adv.get("signal_quality", ""),
-                "watch_for":     _merged_adv.get("watch_for", ""),
-                "macro_supports":_merged_adv.get("macro_supports"),
+                "summary":        _merged_adv.get("gpt4_summary", advisory.get("gpt4_summary", "")),
+                "signal_quality": _merged_adv.get("signal_quality", ""),
+                "watch_for":      _merged_adv.get("watch_for", ""),
+                "macro_supports": _merged_adv.get("macro_supports"),
+                "entry_low":      _merged_adv.get("entry_low"),
+                "entry_high":     _merged_adv.get("entry_high"),
+                "stop_level":     _merged_adv.get("stop_level"),
+                "target_level":   _merged_adv.get("target_level"),
             },
             "claude": {
-                "headline": _merged_adv.get("headline", ""),
-                "brief":    _merged_adv.get("brief", ""),
-                "risk_flags":_merged_adv.get("risk_flags", []),
+                "headline":   _merged_adv.get("headline", ""),
+                "brief":      _merged_adv.get("brief", ""),
+                "risk_flags": _merged_adv.get("risk_flags", []),
             },
-            "selector":  selector or None,
+            "selector":    selector or None,
             "llm_running": _llm_spec_running,
             "llm_last_run": datetime.fromtimestamp(_llm_spec_ts, tz=timezone.utc).isoformat()
                             if _llm_spec_ts else None,
         },
+        "trade_idea": _merged_adv.get("trade_idea") or None,
         "opportunities": opportunities,
         "trade_watch":   trade_watch,
         "risk_flags":    risk_flags,

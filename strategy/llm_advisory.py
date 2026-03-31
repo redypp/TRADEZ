@@ -66,7 +66,7 @@ Using your live X/Twitter access and news knowledge, answer these questions for 
 Keep it factual and concise. The trader needs actionable context, not generic commentary.
 
 Respond in JSON:
-{{"sentiment": "BULLISH|BEARISH|NEUTRAL", "risk_events": "none|<what and when>", "unusual": "none|<brief>", "summary": "<2 sentences max — what should the trader know right now>"}}"""
+{{"sentiment": "BULLISH|BEARISH|NEUTRAL", "risk_events": "none|<what and when>", "unusual": "none|<brief>", "summary": "<2 sentences max — what should the trader know right now>", "trade_bias": "LONG|SHORT|FLAT", "bias_reason": "<one line — the specific news or sentiment driver>"}}"""
 
 _GPT4_PROMPT = """\
 You are a quantitative market analyst advising a human trader on MES (Micro E-mini S&P 500) futures.
@@ -80,11 +80,16 @@ Assess the current setup for the trader:
 1. Does the macro environment (VIX={vix}, yields, DXY={dxy}) support or work against this signal?
 2. How strong is this setup? (HIGH / MEDIUM / LOW quality)
 3. What should the trader be watching in the next hour?
+4. Based on the technicals (price={close}, EMA20={ema20}, VWAP={vwap}, ATR={atr}), identify a specific trade idea:
+   - Entry zone (a 2-3 point range near current price, a key level, or a pullback zone)
+   - Stop loss level (beyond nearest structure/ATR-based)
+   - Target level (next key level or ATR multiple)
+   - Only provide levels if you have a genuine conviction — use null if conditions are not clear enough
 
 Be direct. The trader can see the charts — give them context they can't easily quantify.
 
 Respond in JSON:
-{{"signal_quality": "HIGH|MEDIUM|LOW|N/A", "macro_supports": true|false, "watch_for": "<1 sentence>", "summary": "<2 sentences — what the quant data says about this setup>"}}"""
+{{"signal_quality": "HIGH|MEDIUM|LOW|N/A", "macro_supports": true|false, "watch_for": "<1 sentence>", "summary": "<2 sentences — what the quant data says about this setup>", "entry_low": <float|null>, "entry_high": <float|null>, "stop_level": <float|null>, "target_level": <float|null>}}"""
 
 _CLAUDE_BRIEF_PROMPT = """\
 You are an AI co-pilot helping a human trader interpret their automated MES futures trading bot.
@@ -105,15 +110,18 @@ Write a concise 2-3 sentence advisory brief for the trader. Be direct and useful
 - Any specific thing the trader should watch or be cautious about?
 - If no trade was taken (FLAT), why does that look right or wrong?
 
-Do NOT tell the trader what to do with execution — the algo handles that.
-Write in plain English, no jargon overload. Think: smart friend with market knowledge.
+Then synthesize a concrete trade idea from Grok's bias and GPT-4's levels. This is a genuine trade recommendation, not a filter — think of it as your best idea right now:
+- Direction: LONG, SHORT, or FLAT (FLAT only if conditions are genuinely unclear)
+- Entry zone: the price range to get in (from GPT-4 levels or nearest key level)
+- Stop: where you're wrong
+- Target: where you're taking profit
+- Confidence: 0.0–1.0 (be honest — 0.85+ means high conviction, below 0.55 = FLAT)
+- Thesis: one sharp sentence explaining the trade idea
 
-Also extract:
-- A one-line headline (under 60 chars)
-- Any risk flags worth a ⚠️ (0-3 max, only real ones)
+Write in plain English. Think: sharp trader who sees the full picture.
 
 Respond in JSON:
-{{"headline": "<60 chars>", "brief": "<2-3 sentences>", "risk_flags": ["<flag1>", "<flag2>"]}}"""
+{{"headline": "<60 chars>", "brief": "<2-3 sentences>", "risk_flags": ["<flag1>", "<flag2>"], "trade_idea": {{"direction": "LONG|SHORT|FLAT", "entry_low": <float|null>, "entry_high": <float|null>, "stop": <float|null>, "target": <float|null>, "confidence": <0.0-1.0>, "thesis": "<one sentence>"}}}}"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,13 +225,17 @@ async def _query_gpt4(context_json: str, context: dict,
             signal_direction=signal_direction,
             vix=context.get("vix", "?"),
             dxy=context.get("dxy", "?"),
+            close=context.get("close", "?"),
+            ema20=context.get("ema20", "?"),
+            vwap=context.get("vwap", "?"),
+            atr=context.get("atr", "?"),
         )
         resp = await asyncio.wait_for(
             client.chat.completions.create(
                 model=GPT4_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=300,
+                max_tokens=400,
             ),
             timeout=TIMEOUT_GPT4,
         )
@@ -264,7 +276,7 @@ async def _query_claude_brief(context_json: str, grok_out: dict, gpt4_out: dict,
         resp = await asyncio.wait_for(
             client.messages.create(
                 model=CLAUDE_MODEL,
-                max_tokens=300,
+                max_tokens=500,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],
             ),
@@ -304,6 +316,28 @@ async def _async_get_advisory(market_data: dict, strategy_id: str,
         context_json, grok_out, gpt4_out, strategy_id, signal_direction
     )
 
+    # Merge Grok's directional bias into Claude's trade idea if Claude didn't produce one
+    trade_idea = claude_out.get("trade_idea") or {}
+    if not trade_idea.get("direction") and grok_out.get("trade_bias") in ("LONG", "SHORT", "FLAT"):
+        trade_idea["direction"]  = grok_out["trade_bias"]
+        trade_idea["thesis"]     = grok_out.get("bias_reason", "")
+        trade_idea["confidence"] = 0.55  # lower default when only Grok bias available
+    # Fill entry/stop/target from GPT-4 if Claude left them null
+    for gpt4_key, idea_key in [
+        ("entry_low",    "entry_low"),
+        ("entry_high",   "entry_high"),
+        ("stop_level",   "stop"),
+        ("target_level", "target"),
+    ]:
+        if not trade_idea.get(idea_key) and gpt4_out.get(gpt4_key):
+            trade_idea[idea_key] = gpt4_out[gpt4_key]
+
+    logger.info(
+        f"[Advisory] trade_idea dir={trade_idea.get('direction')} "
+        f"conf={trade_idea.get('confidence')} "
+        f"entry={trade_idea.get('entry_low')}-{trade_idea.get('entry_high')}"
+    )
+
     return {
         "headline":       claude_out.get("headline", f"{strategy_id} — {signal_direction}"),
         "sentiment":      grok_out.get("sentiment", "NEUTRAL"),
@@ -316,6 +350,9 @@ async def _async_get_advisory(market_data: dict, strategy_id: str,
         "risk_events":    grok_out.get("risk_events", "none"),
         "unusual":        grok_out.get("unusual", "none"),
         "macro_supports": gpt4_out.get("macro_supports"),
+        "trade_idea":     trade_idea or None,
+        "grok_bias":      grok_out.get("trade_bias", "FLAT"),
+        "grok_bias_reason": grok_out.get("bias_reason", ""),
         "timestamp":      datetime.now(ET).strftime("%H:%M ET"),
         "trigger":        trigger,
         "strategy_id":    strategy_id,
@@ -360,19 +397,22 @@ def get_advisory(
         logger.error(f"[Advisory] Failed: {e}")
 
     return {
-        "headline":       "AI Advisory unavailable",
-        "sentiment":      "NEUTRAL",
-        "signal_quality": "N/A",
-        "risk_flags":     [],
-        "grok_summary":   "",
-        "gpt4_summary":   "",
-        "watch_for":      "",
-        "brief":          "Advisory models unavailable. Check API keys in .env.",
-        "risk_events":    "none",
-        "unusual":        "none",
-        "macro_supports": None,
-        "timestamp":      datetime.now(ET).strftime("%H:%M ET"),
-        "trigger":        trigger,
-        "strategy_id":    strategy_id,
-        "signal":         signal_direction,
+        "headline":         "AI Advisory unavailable",
+        "sentiment":        "NEUTRAL",
+        "signal_quality":   "N/A",
+        "risk_flags":       [],
+        "grok_summary":     "",
+        "gpt4_summary":     "",
+        "watch_for":        "",
+        "brief":            "Advisory models unavailable. Check API keys in .env.",
+        "risk_events":      "none",
+        "unusual":          "none",
+        "macro_supports":   None,
+        "trade_idea":       None,
+        "grok_bias":        "FLAT",
+        "grok_bias_reason": "",
+        "timestamp":        datetime.now(ET).strftime("%H:%M ET"),
+        "trigger":          trigger,
+        "strategy_id":      strategy_id,
+        "signal":           signal_direction,
     }

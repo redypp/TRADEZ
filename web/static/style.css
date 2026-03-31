@@ -1305,6 +1305,34 @@ code {
 .tw-conf        { font-size: 10px; color: var(--text3); font-family: var(--mono); }
 .tw-empty       { font-size: 11px; color: var(--text3); font-style: italic; padding: 4px 0; }
 
+/* ── LLM Trade Idea Card ─────────────────────────────────────── */
+.tw-idea-card {
+  border-radius: var(--r-sm); padding: 14px 16px;
+  border: 1px solid var(--border1); background: var(--s2);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.tw-idea-card.long  { border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.05); }
+.tw-idea-card.short { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.05); }
+.tw-idea-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tw-idea-symbol { font-size: 13px; font-weight: 700; font-family: var(--mono); }
+.tw-idea-conf   { font-size: 11px; font-weight: 600; margin-left: auto; padding: 2px 8px; border-radius: 6px; }
+.tw-idea-conf.conf-high   { color: var(--green); background: var(--green-bg); }
+.tw-idea-conf.conf-medium { color: #fbbf24; background: rgba(251,191,36,0.12); }
+.tw-idea-conf.conf-low    { color: var(--text3); background: var(--s3); }
+.tw-idea-rr     { font-size: 11px; font-family: var(--mono); color: var(--text2);
+                  padding: 2px 6px; border-radius: 4px; background: var(--s3); }
+.tw-idea-levels { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+.tw-level-row   { display: flex; flex-direction: column; gap: 2px;
+                  padding: 8px 10px; border-radius: 6px; background: var(--s1); }
+.tw-lbl  { font-size: 9px; letter-spacing: 1px; color: var(--text3); text-transform: uppercase; }
+.tw-val  { font-size: 13px; font-weight: 700; font-family: var(--mono); color: var(--text1); }
+.tw-val.stop   { color: var(--red); }
+.tw-val.target { color: var(--green); }
+.tw-idea-thesis { font-size: 11px; color: var(--text2); line-height: 1.5;
+                  padding: 8px 10px; border-radius: 6px; background: var(--s1);
+                  border-left: 3px solid var(--border2); }
+.tw-grok-note   { font-size: 10px; color: var(--text3); font-style: italic; }
+
 /* ── Opportunities ───────────────────────────────────────────── */
 .opp-grid    { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
 .opp-card {

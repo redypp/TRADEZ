@@ -1268,16 +1268,23 @@ function renderScreener(d) {
     const hasAny = specs.grok?.summary || specs.gpt4?.summary || specs.claude?.brief;
 
     if (specs.grok?.summary) {
-      const grokSent = (specs.grok.sentiment || 'NEUTRAL').toUpperCase();
-      const grokCls  = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[grokSent] || 'neutral';
+      const grokSent  = (specs.grok.sentiment   || 'NEUTRAL').toUpperCase();
+      const grokBias  = (specs.grok.trade_bias  || '').toUpperCase();
+      const grokSentCls = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[grokSent] || 'neutral';
+      const grokBiasCls = { LONG:'bullish', SHORT:'bearish', FLAT:'neutral' }[grokBias] || 'neutral';
+      const biasBadge = grokBias
+        ? `<span class="spec-badge ${grokBiasCls}" style="margin-left:6px">${grokBias === 'LONG' ? '▲' : grokBias === 'SHORT' ? '▼' : '◆'} ${grokBias}</span>`
+        : '';
       rows.push(`
         <div class="spec-item">
           <div class="spec-header">
             <span class="spec-logo grok">GROK</span>
-            <span class="spec-badge ${grokCls}">${grokSent}</span>
+            <span class="spec-badge ${grokSentCls}">${grokSent}</span>
+            ${biasBadge}
             <span style="font-size:9px;color:var(--text3);margin-left:4px">X · REAL-TIME</span>
           </div>
           <div class="spec-text">${specs.grok.summary}</div>
+          ${specs.grok.bias_reason ? `<div class="spec-text" style="color:var(--text3);font-style:italic;margin-top:2px">${specs.grok.bias_reason}</div>` : ''}
         </div>`);
       rows.push('<div class="spec-divider"></div>');
     }
@@ -1286,6 +1293,14 @@ function renderScreener(d) {
       const q = specs.gpt4.signal_quality || '';
       const qCls = { HIGH:'spec-badge bullish', MEDIUM:'spec-badge neutral', LOW:'spec-badge bearish', 'N/A':'' }[q] || '';
       const macroOk = specs.gpt4.macro_supports;
+      const el = specs.gpt4.entry_low, eh = specs.gpt4.entry_high;
+      const sl = specs.gpt4.stop_level, tl = specs.gpt4.target_level;
+      const levelsHtml = (el || sl || tl) ? `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:6px">
+          ${el ? `<div style="font-size:10px;background:var(--s1);border-radius:4px;padding:4px 6px"><div style="font-size:8px;color:var(--text3);letter-spacing:1px">ENTRY</div><div style="font-family:var(--mono);font-weight:700">${Number(el).toFixed(2)}${eh ? '–'+Number(eh).toFixed(2) : ''}</div></div>` : ''}
+          ${sl ? `<div style="font-size:10px;background:var(--s1);border-radius:4px;padding:4px 6px"><div style="font-size:8px;color:var(--text3);letter-spacing:1px">STOP</div><div style="font-family:var(--mono);font-weight:700;color:var(--red)">${Number(sl).toFixed(2)}</div></div>` : ''}
+          ${tl ? `<div style="font-size:10px;background:var(--s1);border-radius:4px;padding:4px 6px"><div style="font-size:8px;color:var(--text3);letter-spacing:1px">TARGET</div><div style="font-family:var(--mono);font-weight:700;color:var(--green)">${Number(tl).toFixed(2)}</div></div>` : ''}
+        </div>` : '';
       rows.push(`
         <div class="spec-item">
           <div class="spec-header">
@@ -1297,6 +1312,7 @@ function renderScreener(d) {
           <div class="spec-text">${specs.gpt4.summary}</div>
           ${specs.gpt4.watch_for && specs.gpt4.watch_for !== 'n/a'
             ? `<div class="spec-text" style="color:var(--amber);margin-top:3px">👁 ${specs.gpt4.watch_for}</div>` : ''}
+          ${levelsHtml}
         </div>`);
       rows.push('<div class="spec-divider"></div>');
     }
@@ -1360,20 +1376,59 @@ function renderScreener(d) {
     }
   }
 
-  // ── Trade watch ────────────────────────────────────────────────────────────
+  // ── Trade watch (LLM trade idea) ───────────────────────────────────────────
   const twList = $('trade-watch-list');
   if (twList) {
-    if (!watch.length) {
-      twList.innerHTML = '<div class="tw-empty">No active setups.</div>';
+    const idea    = d.trade_idea || null;
+    const gBias   = specs.grok?.trade_bias  || '';
+    const gReason = specs.grok?.bias_reason || '';
+
+    if (!idea && !watch.length) {
+      twList.innerHTML = '<div class="tw-empty">Awaiting LLM analysis…</div>';
     } else {
-      twList.innerHTML = watch.map(w => {
+      // Primary card: LLM synthesized trade idea
+      let html = '';
+      if (idea) {
+        const dir     = (idea.direction || 'FLAT').toUpperCase();
+        const dirCls  = { LONG:'long', SHORT:'short', FLAT:'neutral' }[dir] || 'neutral';
+        const dirLbl  = { LONG:'▲ LONG', SHORT:'▼ SHORT', FLAT:'◆ FLAT' }[dir] || dir;
+        const conf    = idea.confidence != null ? Math.round(idea.confidence * 100) + '%' : '—';
+        const confVal = idea.confidence || 0;
+        const confCls = confVal >= 0.75 ? 'high' : confVal >= 0.55 ? 'medium' : 'low';
+        const entryStr = (idea.entry_low && idea.entry_high)
+          ? `${Number(idea.entry_low).toFixed(2)} – ${Number(idea.entry_high).toFixed(2)}`
+          : (idea.entry_low || idea.entry_high)
+            ? Number(idea.entry_low || idea.entry_high).toFixed(2)
+            : '—';
+        const stopStr   = idea.stop   ? Number(idea.stop).toFixed(2)   : '—';
+        const targetStr = idea.target ? Number(idea.target).toFixed(2) : '—';
+        const rr = (idea.stop && idea.target && idea.entry_low)
+          ? Math.abs((idea.target - idea.entry_low) / (idea.entry_low - idea.stop)).toFixed(1) + 'R'
+          : '';
+        html += `
+          <div class="tw-idea-card ${dirCls}">
+            <div class="tw-idea-header">
+              <span class="tw-dir-badge ${dirCls}">${dirLbl}</span>
+              <span class="tw-idea-symbol">MES</span>
+              <span class="tw-idea-conf conf-${confCls}">${conf} confidence</span>
+              ${rr ? `<span class="tw-idea-rr">${rr}</span>` : ''}
+            </div>
+            <div class="tw-idea-levels">
+              <div class="tw-level-row"><span class="tw-lbl">Entry</span><span class="tw-val">${entryStr}</span></div>
+              <div class="tw-level-row"><span class="tw-lbl">Stop</span><span class="tw-val stop">${stopStr}</span></div>
+              <div class="tw-level-row"><span class="tw-lbl">Target</span><span class="tw-val target">${targetStr}</span></div>
+            </div>
+            ${idea.thesis ? `<div class="tw-idea-thesis">${idea.thesis}</div>` : ''}
+            ${gBias && gBias !== dir ? `<div class="tw-grok-note">Grok: ${gBias} — ${gReason}</div>` : ''}
+          </div>`;
+      }
+      // Secondary: legacy trade watch items (if any)
+      html += watch.map(w => {
         const dir    = (w.direction || 'NEUTRAL').toUpperCase();
         const dirCls = { LONG:'long', SHORT:'short', NEUTRAL:'neutral' }[dir] || 'neutral';
         const dirLbl = { LONG:'▲ LONG', SHORT:'▼ SHORT', NEUTRAL:'◆ NEUTRAL' }[dir] || dir;
-        const p1     = w.priority === 1;
         return `
           <div class="tw-item">
-            <div class="tw-priority ${p1 ? 'p1' : ''}">${w.priority}</div>
             <div class="tw-body">
               <div class="tw-top">
                 <span class="tw-symbol">${w.symbol || '—'}</span>
@@ -1385,6 +1440,7 @@ function renderScreener(d) {
             </div>
           </div>`;
       }).join('');
+      twList.innerHTML = html;
     }
   }
 
