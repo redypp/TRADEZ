@@ -570,6 +570,64 @@ def run_premarket_briefing() -> None:
         logger.warning(f"Pre-market briefing failed: {e}")
 
 
+# ─── EOD Swing scan ──────────────────────────────────────────────────────────
+
+def run_eod_swing_scan() -> None:
+    """
+    Fires at 16:05 ET Mon–Fri (after US market close, daily candles settled).
+
+    Scans the full Momentum Swing universe, runs prepare() + get_signal()
+    for each symbol, and places bracket orders via Alpaca for any valid setups.
+    Only runs if STRATEGY_SWING_ENABLED=true.
+    """
+    if not settings.STRATEGY_ENABLED.get("SWING", False):
+        logger.info("EOD swing scan skipped — STRATEGY_SWING_ENABLED not set")
+        return
+
+    logger.info("─── EOD Swing scan starting ───")
+    try:
+        _ensure_auth()
+        equity = _safe_get_equity()
+        if equity <= 0:
+            logger.warning("EOD swing: could not read equity — skipping")
+            return
+
+        fundamentals  = _safe_get_fundamentals()
+        regime_info   = get_regime_info(fundamentals.get("vix"))
+        regime_params = regime_info.get("params", {})
+
+        _session["start_equity"] = _session.get("start_equity") or equity
+
+        executed = run_all_symbols(
+            fundamentals  = fundamentals,
+            regime_info   = regime_info,
+            regime_params = regime_params,
+            equity        = equity,
+            session       = _session,
+        )
+
+        swing_executed = [t for t in executed if t.get("strategy") == "SWING"]
+        if swing_executed:
+            tags = [f"{t['symbol']} {t.get('direction_str','?')}" for t in swing_executed]
+            logger.info(f"EOD swing placed {len(swing_executed)} order(s): {tags}")
+            try:
+                from monitor.alerts import send_telegram
+                lines = [f"📈 *Swing EOD Scan* — {len(swing_executed)} setup(s) entered"]
+                for t in swing_executed:
+                    lines.append(
+                        f"  • {t['symbol']} {t.get('direction_str','LONG')} | "
+                        f"entry≈{t.get('entry',0):.2f} SL={t.get('sl',0):.2f} TP={t.get('tp',0):.2f}"
+                    )
+                send_telegram("\n".join(lines))
+            except Exception:
+                pass
+        else:
+            logger.info("EOD swing: no setups met criteria today")
+
+    except Exception as e:
+        logger.error(f"EOD swing scan failed: {e}", exc_info=True)
+
+
 # ─── Scheduler setup ──────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -623,6 +681,21 @@ def main() -> None:
         id   = "eod_summary",
         name = "End-of-Day Summary",
     )
+
+    # EOD Momentum Swing scan at 16:05 ET (after daily candles settle)
+    if settings.STRATEGY_ENABLED.get("SWING", False):
+        scheduler.add_job(
+            func    = run_eod_swing_scan,
+            trigger = CronTrigger(
+                day_of_week = "mon-fri",
+                hour        = "16",
+                minute      = "5",
+                timezone    = ET,
+            ),
+            id   = "eod_swing_scan",
+            name = "EOD Momentum Swing Scan",
+        )
+        logger.info("EOD Swing scan job registered (16:05 ET Mon-Fri)")
 
     # Pre-market AI briefing at 9:55 ET (before first signal check)
     if settings.LLM_ADVISORY_ENABLED:
