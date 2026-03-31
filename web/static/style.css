@@ -1405,6 +1405,7 @@ code {
 .sl-val  { font-size: 12px; font-weight: 700; font-family: var(--mono); color: var(--text1); }
 .sl-val.stop   { color: var(--red); }
 .sl-val.target { color: var(--green); }
+.swing-tp-note { font-size: 9px; color: var(--amber); font-weight: 400; margin-left: 4px; font-family: var(--sans); }
 
 /* ── Strategy menu live/inactive dots ───────────────────────── */
 .sm-item-dot.live     { background: var(--green); }

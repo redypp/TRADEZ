@@ -1136,24 +1136,27 @@ function renderSwingScreener(d) {
   }
 
   body.innerHTML = setups.map(s => {
-    const qCls   = s.quality === 'HIGH' ? 'quality-high' : 'quality-medium';
+    const qCls    = s.quality === 'HIGH' ? 'quality-high' : 'quality-medium';
     const typeLbl = s.setup_type === 'BREAKOUT' ? '⬆ BREAKOUT' : '↩ PULLBACK';
     const risk    = s.close && s.stop ? (((s.close - s.stop) / s.close) * 100).toFixed(2) : '—';
-    const rr      = s.close && s.stop && s.target
-      ? (Math.abs(s.target - s.close) / Math.abs(s.close - s.stop)).toFixed(1) + 'R'
-      : '—';
+    // Use server-calculated R values (context-aware, not fixed)
+    const tp1R    = s.tp1_r != null ? s.tp1_r.toFixed(2) + 'R' : '—';
+    const tp2R    = s.tp2_r != null ? s.tp2_r.toFixed(1) + 'R' : '3R';
+    const tp1Note = s.tp1_r != null && Math.abs(s.tp1_r - 1.5) > 0.1
+      ? `<span class="swing-tp-note">adjusted from default</span>` : '';
     return `
       <div class="swing-setup-row ${qCls}">
         <div class="swing-row-top">
           <span class="swing-symbol">${s.symbol}</span>
           <span class="swing-type-badge">${typeLbl}</span>
           <span class="swing-quality ${qCls}">${s.quality}</span>
-          <span class="swing-rr">${rr}</span>
+          <span class="swing-rr">${tp1R} / ${tp2R}</span>
         </div>
         <div class="swing-levels">
           <div class="swing-level-item"><span class="sl-lbl">Entry</span><span class="sl-val">${s.close?.toFixed(2) ?? '—'}</span></div>
           <div class="swing-level-item"><span class="sl-lbl">Stop</span><span class="sl-val stop">${s.stop?.toFixed(2) ?? '—'}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">Target 1</span><span class="sl-val target">${s.target?.toFixed(2) ?? '—'}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">TP1 ${tp1R}</span><span class="sl-val target">${s.target?.toFixed(2) ?? '—'} ${tp1Note}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">TP2 ${tp2R}</span><span class="sl-val target">${s.tp2?.toFixed(2) ?? '—'}</span></div>
           <div class="swing-level-item"><span class="sl-lbl">RSI</span><span class="sl-val">${s.rsi?.toFixed(1) ?? '—'}</span></div>
           <div class="swing-level-item"><span class="sl-lbl">Risk %</span><span class="sl-val">${risk}%</span></div>
         </div>

@@ -115,6 +115,31 @@ def _avg_volume(df: pd.DataFrame, bars: int = 20) -> float:
     return float(df["volume"].tail(bars).mean())
 
 
+def _next_resistance(df: pd.DataFrame, entry: float, atr: float,
+                     lookback: int = 60, min_r: float = 1.0, max_r: float = 4.0,
+                     risk: float = 0.0) -> float | None:
+    """
+    Find the nearest prior swing high above entry that sits between min_r and max_r
+    multiples of risk away. Used to set context-aware TP1.
+
+    A swing high is a bar whose high is higher than the two bars on each side.
+    Returns the price level, or None if no clean level is found in range.
+    """
+    if risk <= 0:
+        return None
+    window = df.tail(lookback)
+    highs = window["high"].values
+    candidates = []
+    for i in range(2, len(highs) - 2):
+        if highs[i] > highs[i-1] and highs[i] > highs[i-2] and \
+           highs[i] > highs[i+1] and highs[i] > highs[i+2]:
+            level = float(highs[i])
+            r_multiple = (level - entry) / risk
+            if min_r <= r_multiple <= max_r:
+                candidates.append(level)
+    return min(candidates) if candidates else None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Strategy
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,11 +290,23 @@ class MomentumSwingStrategy(AbstractStrategy):
         if breakout_signal:
             stop  = support - 0.25 * current_atr   # below consolidation base
             risk  = float(today["close"]) - stop
-            tp1   = float(today["close"]) + tp_r1 * risk
-            df.iloc[-1, df.columns.get_loc("signal")]     = 1
-            df.iloc[-1, df.columns.get_loc("stop_loss")]  = round(stop, 4)
-            df.iloc[-1, df.columns.get_loc("take_profit")] = round(tp1, 4)
-            df.iloc[-1, df.columns.get_loc("setup_type")] = SETUP_BREAKOUT
+            # Use nearest prior swing high as TP1 if it falls in 1.5–4R; else 2R
+            # (breakouts tend to run — prefer 2R default over 1.5R)
+            key_level = _next_resistance(df.iloc[:-1], float(today["close"]),
+                                         current_atr, risk=risk, min_r=1.5, max_r=4.0)
+            if key_level:
+                tp1   = key_level
+                tp1_r = round((tp1 - float(today["close"])) / risk, 2)
+            else:
+                tp1_r = 2.0
+                tp1   = float(today["close"]) + tp1_r * risk
+            df.iloc[-1, df.columns.get_loc("signal")]      = 1
+            df.iloc[-1, df.columns.get_loc("stop_loss")]   = round(stop, 4)
+            df.iloc[-1, df.columns.get_loc("take_profit")]  = round(tp1, 4)
+            df.iloc[-1, df.columns.get_loc("setup_type")]  = SETUP_BREAKOUT
+            if "tp1_r" not in df.columns:
+                df["tp1_r"] = np.nan
+            df.iloc[-1, df.columns.get_loc("tp1_r")] = tp1_r
             return df
 
         # ── SETUP B: PULLBACK CONTINUATION ───────────────────────────────────
@@ -292,11 +329,22 @@ class MomentumSwingStrategy(AbstractStrategy):
         if pullback_signal:
             stop  = float(today["low"]) - 0.1 * current_atr   # below pullback low
             risk  = float(today["close"]) - stop
-            tp1   = float(today["close"]) + tp_r1 * risk
-            df.iloc[-1, df.columns.get_loc("signal")]     = 1
-            df.iloc[-1, df.columns.get_loc("stop_loss")]  = round(stop, 4)
-            df.iloc[-1, df.columns.get_loc("take_profit")] = round(tp1, 4)
-            df.iloc[-1, df.columns.get_loc("setup_type")] = SETUP_PULLBACK
+            # Pullback: look for prior high as TP1 ceiling (1.0–2.5R range)
+            key_level = _next_resistance(df.iloc[:-1], float(today["close"]),
+                                         current_atr, risk=risk, min_r=1.0, max_r=2.5)
+            if key_level:
+                tp1   = key_level
+                tp1_r = round((tp1 - float(today["close"])) / risk, 2)
+            else:
+                tp1_r = tp_r1  # fallback to setting default (1.5R)
+                tp1   = float(today["close"]) + tp1_r * risk
+            df.iloc[-1, df.columns.get_loc("signal")]      = 1
+            df.iloc[-1, df.columns.get_loc("stop_loss")]   = round(stop, 4)
+            df.iloc[-1, df.columns.get_loc("take_profit")]  = round(tp1, 4)
+            df.iloc[-1, df.columns.get_loc("setup_type")]  = SETUP_PULLBACK
+            if "tp1_r" not in df.columns:
+                df["tp1_r"] = np.nan
+            df.iloc[-1, df.columns.get_loc("tp1_r")] = tp1_r
 
         return df
 
@@ -388,7 +436,11 @@ class MomentumSwingStrategy(AbstractStrategy):
                 target    = float(last["take_profit"])
                 rsi       = float(last.get("rsi", 0))
                 setup     = str(last.get("setup_type", ""))
-                risk_pct  = (close - stop) / close if close > 0 else 0
+                risk      = close - stop
+                risk_pct  = risk / close if close > 0 else 0
+                tp1_r     = float(last["tp1_r"]) if "tp1_r" in last.index and not np.isnan(last["tp1_r"]) else (2.0 if setup == SETUP_BREAKOUT else 1.5)
+                tp2_r     = getattr(settings, "SWING_TP_R2", 3.0)
+                tp2       = close + tp2_r * risk
                 quality   = "HIGH" if setup == SETUP_BREAKOUT and rsi < 70 else "MEDIUM"
 
                 results.append({
@@ -396,7 +448,10 @@ class MomentumSwingStrategy(AbstractStrategy):
                     "setup_type": setup,
                     "close":      round(close, 2),
                     "stop":       round(stop, 2),
-                    "target":     round(target, 2),
+                    "target":     round(target, 2),   # TP1
+                    "tp1_r":      round(tp1_r, 2),
+                    "tp2":        round(tp2, 2),
+                    "tp2_r":      tp2_r,
                     "risk_pct":   round(risk_pct * 100, 2),
                     "rsi":        round(rsi, 1),
                     "ema20":      round(float(last.get("ema20", 0)), 2),
