@@ -1109,6 +1109,32 @@ def api_screener_news(limit: int = 30):
     }
 
 
+@app.get("/api/swing/screener")
+def api_swing_screener():
+    """
+    Run the Momentum Swing universe scan and return today's setups.
+    Cached for 10 minutes — daily strategy so no need for frequent refresh.
+    """
+    import time as _time
+    cache = getattr(api_swing_screener, "_cache", None)
+    cache_ts = getattr(api_swing_screener, "_cache_ts", 0)
+    if cache is not None and (_time.time() - cache_ts) < 600:
+        return cache
+    try:
+        from strategy.momentum_swing import MomentumSwingStrategy
+        strategy = MomentumSwingStrategy()
+        setups = strategy.scan_universe()
+        result = {"setups": setups, "count": len(setups),
+                  "as_of": datetime.now(timezone.utc).isoformat()}
+        api_swing_screener._cache    = result
+        api_swing_screener._cache_ts = _time.time()
+        return result
+    except Exception as e:
+        logger.error(f"[SwingScreener] {e}")
+        return {"setups": [], "count": 0, "error": str(e),
+                "as_of": datetime.now(timezone.utc).isoformat()}
+
+
 @app.get("/api/strategy/status")
 def api_strategy_status():
     """

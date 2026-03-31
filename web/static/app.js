@@ -63,7 +63,7 @@ function activateTab(tabId) {
   if (panel) panel.classList.add('active');
   if (tabId === 'journal') renderJournal(window._lastTrades);
   if (tabId === 'screener') { fetchScreener(); fetchNews(); }
-  if (tabId === 'vwap' || tabId === 'orb' || tabId === 'rsi2') fetchStrategyStatus();
+  if (tabId === 'swing') fetchSwingScreener();
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -980,6 +980,55 @@ document.addEventListener('click', e => {
   const sel = $('strategy-selector');
   if (sel && !sel.contains(e.target)) sel.classList.remove('open');
 });
+
+// ── Momentum Swing screener ───────────────────────────────────────────────────
+async function fetchSwingScreener() {
+  try {
+    const r = await fetch('/api/swing/screener');
+    if (!r.ok) return;
+    const d = await r.json();
+    renderSwingScreener(d);
+  } catch { /* silent */ }
+}
+
+function renderSwingScreener(d) {
+  const body  = $('swing-screener-body');
+  const count = $('swing-setup-count');
+  if (!body) return;
+
+  const setups = d?.setups || [];
+  if (count) count.textContent = setups.length || '0';
+
+  if (!setups.length) {
+    body.innerHTML = '<div class="swing-empty">No setups detected today. Market may be extended or strategy inactive.</div>';
+    return;
+  }
+
+  body.innerHTML = setups.map(s => {
+    const qCls   = s.quality === 'HIGH' ? 'quality-high' : 'quality-medium';
+    const typeLbl = s.setup_type === 'BREAKOUT' ? '⬆ BREAKOUT' : '↩ PULLBACK';
+    const risk    = s.close && s.stop ? (((s.close - s.stop) / s.close) * 100).toFixed(2) : '—';
+    const rr      = s.close && s.stop && s.target
+      ? (Math.abs(s.target - s.close) / Math.abs(s.close - s.stop)).toFixed(1) + 'R'
+      : '—';
+    return `
+      <div class="swing-setup-row ${qCls}">
+        <div class="swing-row-top">
+          <span class="swing-symbol">${s.symbol}</span>
+          <span class="swing-type-badge">${typeLbl}</span>
+          <span class="swing-quality ${qCls}">${s.quality}</span>
+          <span class="swing-rr">${rr}</span>
+        </div>
+        <div class="swing-levels">
+          <div class="swing-level-item"><span class="sl-lbl">Entry</span><span class="sl-val">${s.close?.toFixed(2) ?? '—'}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">Stop</span><span class="sl-val stop">${s.stop?.toFixed(2) ?? '—'}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">Target 1</span><span class="sl-val target">${s.target?.toFixed(2) ?? '—'}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">RSI</span><span class="sl-val">${s.rsi?.toFixed(1) ?? '—'}</span></div>
+          <div class="swing-level-item"><span class="sl-lbl">Risk %</span><span class="sl-val">${risk}%</span></div>
+        </div>
+      </div>`;
+  }).join('');
+}
 
 // ── Strategy status polling (VWAP / ORB / RSI2 pages) ────────────────────────
 async function fetchStrategyStatus() {

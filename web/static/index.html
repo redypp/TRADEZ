@@ -23,9 +23,7 @@
     <button class="tab-btn active" data-tab="brt">
       <span class="tab-dot" id="live-dot"></span>BRT
     </button>
-    <button class="tab-btn" data-tab="vwap">VWAP MR</button>
-    <button class="tab-btn" data-tab="orb">ORB</button>
-    <button class="tab-btn" data-tab="rsi2">RSI2</button>
+    <button class="tab-btn" data-tab="swing">Momentum Swing</button>
     <button class="tab-btn" data-tab="screener">AI Screener</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
     <button class="tab-btn" data-tab="stack">Stack</button>
@@ -34,39 +32,25 @@
   <div class="tb-right">
     <div class="strategy-selector" id="strategy-selector">
       <button class="strategy-btn" id="strategy-btn" onclick="toggleStrategyMenu()">
-        <span class="strat-dot"></span>
+        <span class="strat-dot" id="strat-live-dot"></span>
         <span class="strat-label" id="strat-label">BRT · MES</span>
         <svg class="strat-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
       <div class="strategy-menu" id="strategy-menu">
-        <div class="sm-header">GO TO STRATEGY</div>
+        <div class="sm-header">SWITCH STRATEGY</div>
         <button class="sm-item active" id="sm-brt" onclick="switchStrategyTab('brt','BRT · MES')">
-          <div class="sm-item-dot"></div>
+          <div class="sm-item-dot live" title="LIVE"></div>
           <div>
-            <div class="sm-item-name">Break &amp; Retest</div>
+            <div class="sm-item-name">Break &amp; Retest <span class="sm-live-badge">LIVE</span></div>
             <div class="sm-item-sub">MES · 15-min · Trend-follow</div>
           </div>
         </button>
         <div class="sm-divider"></div>
-        <button class="sm-item" id="sm-vwap" onclick="switchStrategyTab('vwap','VWAP MR · MES')">
-          <div class="sm-item-dot"></div>
+        <button class="sm-item" id="sm-swing" onclick="switchStrategyTab('swing','Momentum Swing · Equities')">
+          <div class="sm-item-dot inactive" title="Inactive"></div>
           <div>
-            <div class="sm-item-name">VWAP Mean Reversion</div>
-            <div class="sm-item-sub">MES · 5-min · Counter-trend</div>
-          </div>
-        </button>
-        <button class="sm-item" id="sm-orb" onclick="switchStrategyTab('orb','ORB · MES')">
-          <div class="sm-item-dot"></div>
-          <div>
-            <div class="sm-item-name">Opening Range Breakout</div>
-            <div class="sm-item-sub">MES · 60-min · Breakout</div>
-          </div>
-        </button>
-        <button class="sm-item" id="sm-rsi2" onclick="switchStrategyTab('rsi2','RSI2 · SPY/QQQ')">
-          <div class="sm-item-dot"></div>
-          <div>
-            <div class="sm-item-name">RSI(2) Daily</div>
-            <div class="sm-item-sub">SPY · QQQ · IWM · Mean-reversion</div>
+            <div class="sm-item-name">Momentum Swing</div>
+            <div class="sm-item-sub">US Equities · Daily · Breakout &amp; Pullback</div>
           </div>
         </button>
       </div>
@@ -416,125 +400,47 @@
 </div><!-- /tab-screener -->
 
 
-<!-- ══════════════════════════════════════ TAB: VWAP MR -->
-<div id="tab-vwap" class="tab-panel">
+<!-- ══════════════════════════════════════ TAB: MOMENTUM SWING -->
+<div id="tab-swing" class="tab-panel">
   <div class="strat-page-header">
     <div class="sph-info">
-      <div class="sph-eyebrow">STRATEGY · MES · 5-MIN</div>
-      <h1 class="sph-title">VWAP Mean Reversion</h1>
-      <p class="sph-desc">Counter-trend strategy that fires on range-bound days when price extends significantly from VWAP — then fades back to fair value.</p>
+      <div class="sph-eyebrow">STRATEGY · US EQUITIES · DAILY</div>
+      <h1 class="sph-title">Momentum Swing</h1>
+      <p class="sph-desc">Momentum-based swing system on liquid US stocks. Two setups: breakout above a compressed range on elevated volume, or pullback continuation bounce off the 20 EMA. Holds days to weeks.</p>
     </div>
     <div class="sph-status-group">
-      <div class="sph-stat-chip" id="vwap-enabled-chip">—</div>
-      <div class="sph-sig" id="vwap-live-sig">
-        <div class="sph-sig-label">LIVE SIGNAL</div>
-        <div class="sph-sig-val" id="vwap-sig-val">—</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="strat-page-body">
-    <!-- Live signal card -->
-    <div class="spb-main">
-      <div class="card">
-        <div class="card-head">LIVE · MES vs VWAP</div>
-        <div class="vwap-live-grid" id="vwap-live-grid">
-          <div class="vlg-item"><div class="vlg-lbl">MES Price</div><div class="vlg-val mono" id="vwap-close">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">VWAP</div><div class="vlg-val mono" id="vwap-level">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">Deviation</div><div class="vlg-val mono" id="vwap-dev">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">ADX</div><div class="vlg-val mono" id="vwap-adx">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">RSI</div><div class="vlg-val mono" id="vwap-rsi">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">Eligible</div><div class="vlg-val" id="vwap-eligible">—</div></div>
-        </div>
-        <div class="vwap-signal-note" id="vwap-signal-note">Awaiting data…</div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <div class="card-head">PARAMETERS</div>
-        <div class="param-list">
-          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">MES · ES</span></div>
-          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">5-min candles</span></div>
-          <div class="pm-row"><span class="pm-lbl">ADX gate (max)</span><span class="pm-val">15 — ranging days only</span></div>
-          <div class="pm-row"><span class="pm-lbl">Entry deviation</span><span class="pm-val">&gt; 1.5σ from VWAP</span></div>
-          <div class="pm-row"><span class="pm-lbl">Entry trigger</span><span class="pm-val">Reversal candle at deviation</span></div>
-          <div class="pm-row"><span class="pm-lbl">Target</span><span class="pm-val">VWAP (fair value)</span></div>
-          <div class="pm-row"><span class="pm-lbl">Stop</span><span class="pm-val">1.0 × ATR beyond entry</span></div>
-          <div class="pm-row"><span class="pm-lbl">Session</span><span class="pm-val">10:30 – 15:00 ET</span></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- How it works -->
-    <div class="spb-side">
-      <div class="card">
-        <div class="card-head">HOW IT WORKS</div>
-        <div class="strat-howto">
-          <div class="sht-step"><span class="sht-num">1</span><span>Market opens. Bot computes intraday VWAP from the first candle.</span></div>
-          <div class="sht-step"><span class="sht-num">2</span><span>ADX gate checks: if ADX &gt; 15, market is trending — strategy skips entirely.</span></div>
-          <div class="sht-step"><span class="sht-num">3</span><span>Price extends &gt; 1.5σ above VWAP → short signal. Below → long signal.</span></div>
-          <div class="sht-step"><span class="sht-num">4</span><span>A reversal candle confirms (bearish for short, bullish for long) — entry placed.</span></div>
-          <div class="sht-step"><span class="sht-num">5</span><span>Target is VWAP. Stop is ATR-based beyond the extreme. EOD hard close at 15:00 ET.</span></div>
-          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Complements BRT — fires on days BRT sits out. The two strategies rarely conflict.</span></div>
-        </div>
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-head">ENTRY RULES</div>
-        <div class="strat-rules">
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>ADX &lt; 15 (ranging, not trending)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price deviation &gt; 1.5σ from VWAP</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Reversal candle closes back toward VWAP</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Volume &gt; average (participation)</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>ADX &gt; 15 — skip, market is trending</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>After 15:00 ET — no new entries</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div><!-- /tab-vwap -->
-
-
-<!-- ══════════════════════════════════════ TAB: ORB -->
-<div id="tab-orb" class="tab-panel">
-  <div class="strat-page-header">
-    <div class="sph-info">
-      <div class="sph-eyebrow">STRATEGY · MES/MNQ · 60-MIN</div>
-      <h1 class="sph-title">Opening Range Breakout</h1>
-      <p class="sph-desc">Captures the first-hour directional move. Defines the 9:30–10:30 ET opening range, then trades confirmed breaks of the high or low with trend alignment.</p>
-    </div>
-    <div class="sph-status-group">
-      <div class="sph-stat-chip" id="orb-enabled-chip">—</div>
-      <div class="sph-sig" id="orb-live-sig">
-        <div class="sph-sig-label">LIVE SIGNAL</div>
-        <div class="sph-sig-val" id="orb-sig-val">—</div>
+      <div class="sph-stat-chip swing-inactive-chip">INACTIVE</div>
+      <div class="sph-sig">
+        <div class="sph-sig-label">LIVE SETUPS</div>
+        <div class="sph-sig-val" id="swing-setup-count">—</div>
       </div>
     </div>
   </div>
 
   <div class="strat-page-body">
     <div class="spb-main">
+
+      <!-- Live screener -->
       <div class="card">
-        <div class="card-head">LIVE · OPENING RANGE</div>
-        <div class="vwap-live-grid" id="orb-live-grid">
-          <div class="vlg-item"><div class="vlg-lbl">MES Price</div><div class="vlg-val mono" id="orb-close">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">OR High</div><div class="vlg-val mono green" id="orb-orh">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">OR Low</div><div class="vlg-val mono red" id="orb-orl">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">SMA20</div><div class="vlg-val mono" id="orb-sma">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">Range pts</div><div class="vlg-val mono" id="orb-range">—</div></div>
-          <div class="vlg-item"><div class="vlg-lbl">Eligible</div><div class="vlg-val" id="orb-eligible">—</div></div>
+        <div class="card-head">SCREENER · TODAY'S SETUPS</div>
+        <div id="swing-screener-body">
+          <div class="swing-empty">Strategy not yet active — enable STRATEGY_SWING_ENABLED=true in .env to scan live setups.</div>
         </div>
-        <div class="vwap-signal-note" id="orb-signal-note">Opening range forms 9:30–10:30 ET.</div>
       </div>
 
       <div class="card" style="margin-top:12px">
         <div class="card-head">PARAMETERS</div>
         <div class="param-list">
-          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">MES · MNQ</span></div>
-          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">60-min candles</span></div>
-          <div class="pm-row"><span class="pm-lbl">Range window</span><span class="pm-val">9:30 – 10:30 ET (first hour)</span></div>
-          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">SMA20 — price above for longs</span></div>
-          <div class="pm-row"><span class="pm-lbl">Break confirmation</span><span class="pm-val">Close outside range on hourly bar</span></div>
-          <div class="pm-row"><span class="pm-lbl">Stop</span><span class="pm-val">Opposite side of opening range</span></div>
-          <div class="pm-row"><span class="pm-lbl">EOD exit</span><span class="pm-val">15:00 ET (no overnight)</span></div>
+          <div class="pm-row"><span class="pm-lbl">Universe</span><span class="pm-val">Liquid US stocks &gt; 1M avg vol</span></div>
+          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">Daily candles — EOD signals</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">Price &gt; EMA20 &amp; EMA50 (both sloping up)</span></div>
+          <div class="pm-row"><span class="pm-lbl">Breakout window</span><span class="pm-val">Last 10 bars — tight range compression</span></div>
+          <div class="pm-row"><span class="pm-lbl">Volume confirm</span><span class="pm-val">Entry volume &gt; 1.5× 20-day avg</span></div>
+          <div class="pm-row"><span class="pm-lbl">Risk per trade</span><span class="pm-val">0.75% of account</span></div>
+          <div class="pm-row"><span class="pm-lbl">Target 1</span><span class="pm-val">1.5R — partial exit</span></div>
+          <div class="pm-row"><span class="pm-lbl">Target 2</span><span class="pm-val">3R — runner exits here</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trailing stop</span><span class="pm-val">Below higher lows or EMA20</span></div>
+          <div class="pm-row"><span class="pm-lbl">Hold period</span><span class="pm-val">Several days to a few weeks</span></div>
         </div>
       </div>
     </div>
@@ -543,98 +449,30 @@
       <div class="card">
         <div class="card-head">HOW IT WORKS</div>
         <div class="strat-howto">
-          <div class="sht-step"><span class="sht-num">1</span><span>9:30 ET open: bot starts recording candles for the opening range.</span></div>
-          <div class="sht-step"><span class="sht-num">2</span><span>10:30 ET: range is locked — ORH = first-hour high, ORL = first-hour low.</span></div>
-          <div class="sht-step"><span class="sht-num">3</span><span>SMA20 filter: bullish bias if price &gt; SMA20, bearish if below.</span></div>
-          <div class="sht-step"><span class="sht-num">4</span><span>Price closes above ORH with trend confirmation → LONG. Below ORL → SHORT.</span></div>
-          <div class="sht-step"><span class="sht-num">5</span><span>Target: range-width extension (1× or 2× the range). Hard EOD exit at 15:00 ET.</span></div>
-          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Best on trend days after an overnight gap or strong pre-market move. Fails on choppy open-flat days.</span></div>
+          <div class="sht-step"><span class="sht-num">1</span><span><strong>Trend filter:</strong> price must be above both the 20 EMA and 50 EMA, with both sloping upward. No longs in downtrends.</span></div>
+          <div class="sht-step"><span class="sht-num">2</span><span><strong>Setup A — Breakout:</strong> stock compresses into a tight 10-day range (ATR-relative). Trigger: daily close above resistance on 1.5× avg volume.</span></div>
+          <div class="sht-step"><span class="sht-num">3</span><span><strong>Setup B — Pullback:</strong> stock pulls back to within 2% of EMA20 then shows a bullish rejection candle. Volume &gt; 1.2× avg confirms participation.</span></div>
+          <div class="sht-step"><span class="sht-num">4</span><span><strong>Entry:</strong> on candle close — no chasing opens. Position sized so the stop distance = 0.75% account risk.</span></div>
+          <div class="sht-step"><span class="sht-num">5</span><span><strong>Exit:</strong> take half off at 1.5R. Let runner go to 3R with a trailing stop below higher lows. Cut if price closes below EMA20.</span></div>
+          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Trend filter is the edge. Breakouts in uptrending stocks with volume confirmation have significantly higher follow-through rates than random breakouts.</span></div>
         </div>
       </div>
+
       <div class="card" style="margin-top:12px">
         <div class="card-head">ENTRY RULES</div>
         <div class="strat-rules">
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>After 10:30 ET (range fully formed)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Hourly close outside the opening range</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>SMA20 alignment matches direction</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Range quality filter (min size &gt; 0.5 × ATR)</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Before 10:30 ET — range not yet set</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>After 14:00 ET — too close to EOD exit</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price &gt; EMA20 &amp; EMA50 (both sloping up)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Volume &gt; avg on breakout or bounce candle</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Avg daily volume &gt; 1M shares (liquidity)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>RSI not overextended (&lt; 75 on entry)</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Price below EMA50 — trend not confirmed</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>VIX &gt; 35 — panic market, no swing entries</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>No volume confirmation on breakout</span></div>
         </div>
       </div>
     </div>
   </div>
-</div><!-- /tab-orb -->
-
-
-<!-- ══════════════════════════════════════ TAB: RSI2 -->
-<div id="tab-rsi2" class="tab-panel">
-  <div class="strat-page-header">
-    <div class="sph-info">
-      <div class="sph-eyebrow">STRATEGY · SPY · QQQ · IWM · DAILY</div>
-      <h1 class="sph-title">RSI(2) Daily</h1>
-      <p class="sph-desc">Larry Connors mean-reversion strategy. Buys extreme short-term oversold dips (RSI &lt; 10) in confirmed uptrends (price &gt; 200-day MA). Long-only. 1–5 day hold.</p>
-    </div>
-    <div class="sph-status-group">
-      <div class="sph-stat-chip" id="rsi2-enabled-chip">—</div>
-      <div class="sph-sig" id="rsi2-live-sig">
-        <div class="sph-sig-label">LIVE SIGNAL</div>
-        <div class="sph-sig-val" id="rsi2-sig-val">—</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="strat-page-body">
-    <div class="spb-main">
-      <div class="card">
-        <div class="card-head">LIVE · RSI SCREENER</div>
-        <div class="rsi2-screener" id="rsi2-screener">
-          <!-- rendered by JS -->
-          <div class="rsi2-loading">Fetching RSI data…</div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
-        <div class="card-head">PARAMETERS</div>
-        <div class="param-list">
-          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">SPY · QQQ · IWM</span></div>
-          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">Daily (EOD signals)</span></div>
-          <div class="pm-row"><span class="pm-lbl">RSI period</span><span class="pm-val">2 bars</span></div>
-          <div class="pm-row"><span class="pm-lbl">Entry signal</span><span class="pm-val">RSI(2) &lt; 10</span></div>
-          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">Price &gt; 200-day SMA (no longs in downtrend)</span></div>
-          <div class="pm-row"><span class="pm-lbl">Direction</span><span class="pm-val">Long only</span></div>
-          <div class="pm-row"><span class="pm-lbl">Exit</span><span class="pm-val">RSI(2) &gt; 65 or 5-day max hold</span></div>
-          <div class="pm-row"><span class="pm-lbl">Broker</span><span class="pm-val">Alpaca (stocks API)</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="spb-side">
-      <div class="card">
-        <div class="card-head">HOW IT WORKS</div>
-        <div class="strat-howto">
-          <div class="sht-step"><span class="sht-num">1</span><span>After market close, bot pulls daily data for SPY, QQQ, IWM.</span></div>
-          <div class="sht-step"><span class="sht-num">2</span><span>Trend filter: is price &gt; 200-day SMA? If not, all signals blocked — only trade uptrends.</span></div>
-          <div class="sht-step"><span class="sht-num">3</span><span>RSI(2) calculated. If &lt; 10: extreme oversold in an uptrend — high probability bounce.</span></div>
-          <div class="sht-step"><span class="sht-num">4</span><span>Entry at next-day open. Size based on risk percentage of equity.</span></div>
-          <div class="sht-step"><span class="sht-num">5</span><span>Exit when RSI(2) &gt; 65 (mean restored) or after 5 trading days, whichever first.</span></div>
-          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> RSI(2) signals are rare (few per month per ETF) but high-accuracy when trend filter passes. Low drawdown, high win rate in backtests.</span></div>
-        </div>
-      </div>
-      <div class="card" style="margin-top:12px">
-        <div class="card-head">ENTRY RULES</div>
-        <div class="strat-rules">
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price &gt; 200-day SMA (confirmed uptrend)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>RSI(2) &lt; 10 (extreme oversold)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>No existing position in the symbol</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Price &lt; 200-day SMA — no longs in downtrends</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>RSI(2) &gt; 10 — wait for deeper pullback</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Already holding that symbol — no pyramid</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div><!-- /tab-rsi2 -->
+</div><!-- /tab-swing -->
 
 
 

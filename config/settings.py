@@ -142,6 +142,7 @@ SYMBOL_STRATEGY = {
 #
 STRATEGY_ENABLED = {
     "BRT":      os.getenv("STRATEGY_BRT_ENABLED",      "true").lower()  == "true",
+    "SWING":    os.getenv("STRATEGY_SWING_ENABLED",    "false").lower() == "true",
     "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_ENABLED",  "false").lower() == "true",
     "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_ENABLED",  "false").lower() == "true",
     "ORB":      os.getenv("STRATEGY_ORB_ENABLED",       "false").lower() == "true",
@@ -150,11 +151,30 @@ STRATEGY_ENABLED = {
 
 STRATEGY_SYMBOLS = {
     "BRT":      os.getenv("STRATEGY_BRT_SYMBOLS",      "MES").split(","),
+    "SWING":    os.getenv("STRATEGY_SWING_SYMBOLS",
+                          "AAPL,MSFT,NVDA,META,GOOGL,AMZN,AMD,TSM,AVGO,CRM,"
+                          "ORCL,NFLX,SHOP,PANW,CRWD,SNOW,MDB,DDOG,ZS,AXON").split(","),
     "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_SYMBOLS",  "MES").split(","),
     "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_SYMBOLS",  "MGC,SIL,MNQ").split(","),
     "ORB":      os.getenv("STRATEGY_ORB_SYMBOLS",       "MES,MNQ").split(","),
     "RSI2":     os.getenv("STRATEGY_RSI2_SYMBOLS",      "SPY,QQQ,IWM").split(","),
 }
+
+# ── Momentum Swing Strategy Config ────────────────────────────────────────────
+SWING_EMA_FAST           = int(os.getenv("SWING_EMA_FAST",          "20"))
+SWING_EMA_SLOW           = int(os.getenv("SWING_EMA_SLOW",          "50"))
+SWING_BREAKOUT_BARS      = int(os.getenv("SWING_BREAKOUT_BARS",     "10"))
+SWING_CONSOLIDATION_ATR  = float(os.getenv("SWING_CONSOLIDATION_ATR", "0.75"))
+SWING_VOLUME_MULT        = float(os.getenv("SWING_VOLUME_MULT",       "1.5"))
+SWING_MIN_AVG_VOLUME     = int(os.getenv("SWING_MIN_AVG_VOLUME",    "1000000"))
+SWING_PULLBACK_EMA_TOL   = float(os.getenv("SWING_PULLBACK_EMA_TOL",  "0.02"))
+SWING_RISK_PER_TRADE     = float(os.getenv("SWING_RISK_PER_TRADE",    "0.0075"))
+SWING_TP_R1              = float(os.getenv("SWING_TP_R1",             "1.5"))
+SWING_TP_R2              = float(os.getenv("SWING_TP_R2",             "3.0"))
+SWING_LOOKBACK_DAYS      = int(os.getenv("SWING_LOOKBACK_DAYS",     "90"))
+SWING_UNIVERSE           = os.getenv("SWING_UNIVERSE",
+                                     "AAPL,MSFT,NVDA,META,GOOGL,AMZN,AMD,TSM,AVGO,CRM,"
+                                     "ORCL,NFLX,SHOP,PANW,CRWD,SNOW,MDB,DDOG,ZS,AXON")
 
 STRATEGY_CONFLICT_RESOLUTION = os.getenv("STRATEGY_CONFLICT_RESOLUTION", "PRIORITY")
 
