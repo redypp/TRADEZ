@@ -1084,6 +1084,35 @@ code {
   gap: 0.75rem;
   margin-top: 0.75rem;
 }
+/* Journal + Stack tab layout */
+.section-header { padding: 1.5rem 1.5rem 0.5rem; }
+.section-header h2 { font-size: 1.2rem; font-weight: 700; color: var(--text); margin: 0 0 4px; }
+.section-sub { font-size: 11px; color: var(--text3); margin: 0; }
+
+.stats-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.75rem; padding: 1rem 1.5rem; }
+.stat-card { background: var(--s2); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+.stat-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.stat-value { font-size: 1.1rem; font-weight: 700; font-family: var(--mono); color: var(--text); }
+.stat-value.green { color: var(--green); }
+.stat-value.red   { color: var(--red); }
+
+.stack-section { padding: 1rem 1.5rem; }
+.stack-section-title { font-size: 12px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin: 0 0 0.75rem; }
+.stack-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.stack-section-header .stack-section-title { margin-bottom: 0; }
+
+.srg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+.srg-source { font-size: 10px; color: var(--text3); margin-top: 0.5rem; }
+
+.broker-card { background: var(--s2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem;
+               display: flex; align-items: center; justify-content: space-between; }
+.broker-name   { font-size: 12px; font-weight: 600; color: var(--text); }
+.broker-status { font-size: 11px; font-family: var(--mono); color: var(--text3); }
+
+.btn-secondary { background: var(--s3); border: 1px solid var(--border); border-radius: 6px;
+                 color: var(--text2); font-size: 11px; padding: 4px 10px; cursor: pointer; }
+.btn-secondary:hover { background: var(--s4); }
+
 .srg-item {
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 6px; padding: 0.75rem;
