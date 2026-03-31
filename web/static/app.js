@@ -1180,36 +1180,52 @@ function renderSwingLLMIdeas(d) {
   const ts    = $('llm-scout-ts');
   if (!body) return;
 
-  const ideas = d?.top_ideas || [];
-  const note  = d?.market_note || '';
+  const ideas   = d?.top_ideas || [];
+  const note    = d?.market_note || '';
+  const scanned = d?.scanned_count;
+  const sectors = d?.strong_sectors || [];
 
-  if (badge) badge.textContent = ideas.length ? `· ${ideas.length} idea${ideas.length > 1 ? 's' : ''}` : '';
+  if (badge) {
+    badge.textContent = ideas.length
+      ? `· ${ideas.length} idea${ideas.length > 1 ? 's' : ''}${scanned ? ` · ${scanned} stocks scanned` : ''}`
+      : scanned ? `· ${scanned} stocks scanned` : '';
+  }
   if (ts && d?.timestamp) ts.textContent = `Last scan: ${d.timestamp}`;
 
   if (!ideas.length) {
-    body.innerHTML = '<div class="swing-empty">LLM scan runs at 16:05 ET — catalyst ideas will appear here.</div>';
+    const scanMsg = scanned
+      ? `Scanned ${scanned} stocks — no high-conviction setups found. Next scan 16:05 ET.`
+      : 'LLM scan runs at 16:05 ET — real market intelligence scan will appear here.';
+    body.innerHTML = `<div class="swing-empty">${scanMsg}</div>`;
     return;
   }
 
   const noteHtml = note
     ? `<div class="llm-market-note"><span class="lmn-icon">🌐</span><span>${note}</span></div>` : '';
+  const sectorsHtml = sectors.length
+    ? `<div class="llm-sector-bar">Strong sectors: ${sectors.join(' · ')}</div>` : '';
 
-  body.innerHTML = noteHtml + ideas.map(idea => {
-    const tierCls = idea.conviction_tier === 'HIGH' ? 'quality-high' : 'quality-medium';
-    const conf    = idea.confidence != null ? Math.round(idea.confidence * 100) + '%' : '—';
+  body.innerHTML = noteHtml + sectorsHtml + ideas.map((idea, i) => {
+    const tierCls    = idea.conviction_tier === 'HIGH' ? 'quality-high' : 'quality-medium';
+    const conf       = idea.confidence != null ? Math.round(idea.confidence * 100) + '%' : '—';
+    const rank       = ['#1', '#2', '#3'][i] ?? `#${i + 1}`;
+    const dataPoints = idea.supporting_data
+      ? `<div class="lib-data-points">${idea.supporting_data}</div>` : '';
     return `
       <div class="swing-setup-row ${tierCls}">
         <div class="swing-row-top">
+          <span class="lib-rank">${rank}</span>
           <span class="swing-symbol">${idea.symbol}</span>
-          <span class="swing-type-badge" style="background:var(--blue);color:#fff">${idea.conviction_tier ?? '—'}</span>
-          <span class="swing-quality ${tierCls}">${conf} conf</span>
-          <span class="swing-rr" style="color:var(--text2);font-size:11px">${idea.catalyst ?? ''}</span>
+          <span class="swing-type-badge" style="background:var(--blue-dim,#1e3a5f);color:var(--blue,#60a5fa)">${idea.conviction_tier ?? '—'}</span>
+          <span class="swing-quality ${tierCls}">${conf} confidence</span>
         </div>
+        <div class="lib-catalyst-line">${idea.catalyst ?? ''}</div>
         <div class="llm-idea-body">
           <div class="lib-thesis">${idea.thesis ?? ''}</div>
+          ${dataPoints}
           <div class="lib-meta">
-            <span class="lib-item"><span class="lib-lbl">Entry</span><span class="lib-val">${idea.entry_note ?? '—'}</span></span>
-            <span class="lib-item"><span class="lib-lbl">Risk</span><span class="lib-val">${idea.key_risk ?? '—'}</span></span>
+            <span class="lib-item"><span class="lib-lbl">Entry zone</span><span class="lib-val">${idea.entry_note ?? '—'}</span></span>
+            <span class="lib-item"><span class="lib-lbl">Key risk</span><span class="lib-val">${idea.key_risk ?? '—'}</span></span>
           </div>
         </div>
       </div>`;
