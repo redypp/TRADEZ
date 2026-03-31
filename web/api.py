@@ -1068,6 +1068,148 @@ def api_screener_news(limit: int = 30):
     }
 
 
+@app.get("/api/strategy/status")
+def api_strategy_status():
+    """
+    Live signal status for all strategies — used by VWAP MR / ORB / RSI2 pages.
+    Pulls from bot_state where available, fetches live data where needed.
+    """
+    import yfinance as yf
+    import pandas as pd
+
+    from config import settings as s
+
+    state = get_bot_state() or {}
+
+    # ── Shared market snapshot ─────────────────────────────────────────────────
+    close = state.get("close")
+    vwap  = state.get("vwap")
+    adx   = state.get("adx")
+    rsi   = state.get("rsi")
+    orh   = state.get("orh")
+    orl   = state.get("orl")
+
+    # If scheduler not running, fetch live snapshot
+    if not close:
+        snap = _fetch_mes_snapshot()
+        close = snap.get("close")
+        vwap  = snap.get("vwap")
+        adx   = snap.get("adx")
+        rsi   = snap.get("rsi")
+
+    # ── VWAP MR ───────────────────────────────────────────────────────────────
+    deviation = (close - vwap) if (close and vwap) else None
+    adx_max   = getattr(s, "VWAP_ADX_MAX", 15)
+    vwap_eligible = (
+        _is_session_open()
+        and adx is not None and adx < adx_max
+        and deviation is not None and abs(deviation) > 4
+    )
+    vwap_signal = "NEUTRAL"
+    if vwap_eligible and deviation:
+        vwap_signal = "SHORT" if deviation > 0 else "LONG"
+
+    vwap_note = ""
+    if not _is_session_open():
+        vwap_note = "Market closed — no entries"
+    elif adx and adx >= adx_max:
+        vwap_note = f"ADX {adx:.1f} ≥ {adx_max} — trending, strategy skipped"
+    elif deviation is not None and abs(deviation) < 4:
+        vwap_note = f"Deviation only {abs(deviation):.1f} pts — waiting for ≥ 4 pts"
+    elif vwap_eligible:
+        vwap_note = f"Price {'above' if deviation > 0 else 'below'} VWAP by {abs(deviation):.1f} pts — eligible"
+
+    # ── ORB ───────────────────────────────────────────────────────────────────
+    import pytz
+    et_now = datetime.now(pytz.timezone("America/New_York"))
+    range_set = orh is not None and orl is not None
+    orb_eligible = range_set and _is_session_open() and et_now.hour >= 10
+
+    # Compute SMA20 from hourly data if possible
+    sma20 = None
+    orb_signal = "NEUTRAL"
+    try:
+        df_h = yf.Ticker("ES=F").history(period="30d", interval="1h", auto_adjust=True)
+        if not df_h.empty:
+            df_h.columns = [c.lower() for c in df_h.columns]
+            sma20 = float(df_h["close"].tail(20).mean())
+            if close and orb_eligible:
+                if close > (orh or 0) and close > sma20:
+                    orb_signal = "LONG"
+                elif close < (orl or 0) and close < sma20:
+                    orb_signal = "SHORT"
+    except Exception:
+        pass
+
+    orb_note = ""
+    if not range_set:
+        orb_note = "Range sets 9:30–10:30 ET"
+    elif not _is_session_open():
+        orb_note = "Market closed"
+    elif et_now.hour < 10:
+        orb_note = "Waiting for range to form (10:30 ET)"
+    elif orb_signal != "NEUTRAL":
+        orb_note = f"{'LONG' if orb_signal == 'LONG' else 'SHORT'} breakout of opening range"
+    else:
+        orb_note = "Range formed — watching for breakout"
+
+    # ── RSI2 (daily — fetch after market close) ───────────────────────────────
+    rsi2_signals = {}
+    for sym in ["SPY", "QQQ", "IWM"]:
+        try:
+            df = yf.Ticker(sym).history(period="300d", interval="1d", auto_adjust=True)
+            if df.empty or len(df) < 10:
+                continue
+            df.columns = [c.lower() for c in df.columns]
+            df = df[["open", "high", "low", "close", "volume"]].dropna()
+
+            import ta as _ta
+            rsi2_val = float(_ta.momentum.RSIIndicator(df["close"], window=2).rsi().iloc[-1])
+            sma200   = float(df["close"].tail(200).mean()) if len(df) >= 200 else None
+            sym_close = float(df["close"].iloc[-1])
+            above_200 = sma200 is not None and sym_close > sma200
+            eligible  = above_200 and rsi2_val < 10
+
+            rsi2_signals[sym] = {
+                "close":    round(sym_close, 2),
+                "rsi2":     round(rsi2_val, 1),
+                "sma200":   round(sma200, 2) if sma200 else None,
+                "above_200ma": above_200,
+                "eligible": eligible,
+            }
+        except Exception:
+            rsi2_signals[sym] = {"close": None, "rsi2": None, "sma200": None,
+                                 "above_200ma": None, "eligible": False}
+
+    return {
+        "VWAP_MR": {
+            "enabled":   getattr(s, "STRATEGY_ENABLED", {}).get("VWAP_MR", False),
+            "signal":    vwap_signal,
+            "close":     close,
+            "vwap":      vwap,
+            "deviation": round(deviation, 2) if deviation is not None else None,
+            "adx":       adx,
+            "rsi":       rsi,
+            "eligible":  vwap_eligible,
+            "note":      vwap_note,
+        },
+        "ORB": {
+            "enabled":  getattr(s, "STRATEGY_ENABLED", {}).get("ORB", False),
+            "signal":   orb_signal,
+            "close":    close,
+            "orh":      orh,
+            "orl":      orl,
+            "sma20":    round(sma20, 2) if sma20 else None,
+            "eligible": orb_eligible,
+            "note":     orb_note,
+        },
+        "RSI2": {
+            "enabled":  getattr(s, "STRATEGY_ENABLED", {}).get("RSI2", False),
+            "signals":  rsi2_signals,
+        },
+    }
+
+
 @app.get("/api/settings")
 def api_settings():
     """Return current active BRT settings for dashboard display."""

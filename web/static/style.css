@@ -1450,3 +1450,108 @@ code {
 .nf-summary  { font-size: 11px; color: var(--text2); line-height: 1.4; }
 .nf-ts       { font-size: 9px; color: var(--text3); font-family: var(--mono); margin-top: 2px; }
 .nf-loading  { color: var(--text3); font-size: 12px; font-style: italic; padding: 8px 0; }
+
+/* ══════════════════════════════════════════════════════════════
+   STRATEGY PAGES (VWAP MR · ORB · RSI2)
+══════════════════════════════════════════════════════════════ */
+
+/* ── Page header ─────────────────────────────────────────────── */
+.strat-page-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  padding: 24px 24px 16px; gap: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.sph-info         { flex: 1; }
+.sph-eyebrow      { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--text3); text-transform: uppercase; margin-bottom: 6px; }
+.sph-title        { font-size: 22px; font-weight: 800; letter-spacing: 1px; color: var(--text); margin-bottom: 8px; }
+.sph-desc         { font-size: 12px; color: var(--text2); line-height: 1.6; max-width: 560px; }
+.sph-status-group { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; flex-shrink: 0; }
+.sph-stat-chip    { font-size: 11px; font-weight: 600; }
+.sph-sig          { text-align: right; }
+.sph-sig-label    { font-size: 9px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.sph-sig-val      { font-size: 20px; font-weight: 800; color: var(--text2); font-family: var(--mono); }
+
+/* ── Two-column body ─────────────────────────────────────────── */
+.strat-page-body {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 12px;
+  padding: 16px 24px 32px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .strat-page-body { grid-template-columns: 1fr; }
+}
+.spb-main { display: flex; flex-direction: column; }
+.spb-side { display: flex; flex-direction: column; }
+
+/* ── VWAP live grid ──────────────────────────────────────────── */
+.vwap-live-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 8px; padding: 4px 0 12px;
+}
+.vlg-item    { display: flex; flex-direction: column; gap: 2px; }
+.vlg-lbl     { font-size: 9px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; }
+.vlg-val     { font-size: 15px; font-weight: 600; color: var(--text); }
+.vwap-signal-note { font-size: 11px; color: var(--text2); padding: 8px 0 4px; border-top: 1px solid var(--border); }
+
+/* ── Parameter list ──────────────────────────────────────────── */
+.param-list  { display: flex; flex-direction: column; gap: 0; padding: 4px 0; }
+.pm-row      { display: flex; justify-content: space-between; align-items: center;
+               padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+.pm-row:last-child { border-bottom: none; }
+.pm-lbl      { color: var(--text3); }
+.pm-val      { color: var(--text); font-family: var(--mono); font-size: 11px; text-align: right; }
+
+/* ── How it works ────────────────────────────────────────────── */
+.strat-howto   { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.sht-step      { display: flex; gap: 10px; font-size: 12px; color: var(--text2); line-height: 1.5; }
+.sht-num       {
+  min-width: 20px; height: 20px; border-radius: 50%;
+  background: var(--s3); color: var(--text3);
+  font-size: 10px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+}
+.sht-rule      { padding: 8px 10px; border-radius: var(--r-sm); background: var(--blue-bg); border: 1px solid rgba(59,130,246,0.15); }
+.sht-ico       { color: var(--blue); font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+
+/* ── Entry rules ─────────────────────────────────────────────── */
+.strat-rules   { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.sr-item       { display: flex; gap: 8px; font-size: 11px; color: var(--text2); align-items: flex-start; }
+.sr-check      { font-weight: 700; flex-shrink: 0; margin-top: 1px; font-family: var(--mono); }
+.sr-pass .sr-check { color: var(--green); }
+.sr-fail .sr-check { color: var(--red); }
+
+/* ── RSI2 Screener ───────────────────────────────────────────── */
+.rsi2-header, .rsi2-row {
+  display: grid;
+  grid-template-columns: 60px 80px 80px 100px 120px 100px;
+  gap: 8px; align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.rsi2-header { color: var(--text3); font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.rsi2-row    { color: var(--text); }
+.rsi2-row.rsi2-signal { background: rgba(34,197,94,0.05); border-radius: var(--r-sm); padding: 6px 8px; border: 1px solid rgba(34,197,94,0.2); }
+.rr-sym      { font-weight: 700; font-family: var(--mono); }
+.rr-price    { font-family: var(--mono); color: var(--text2); }
+.rr-ma       { font-family: var(--mono); color: var(--text3); }
+.rr-trend    { font-size: 10px; font-weight: 600; }
+.rr-rsi      { display: flex; align-items: center; gap: 6px; }
+.rr-rsi-bar-wrap { width: 50px; height: 4px; background: var(--s3); border-radius: 2px; overflow: hidden; }
+.rr-rsi-bar  { height: 100%; background: var(--blue); border-radius: 2px; }
+.rr-rsi-bar.rsi-low { background: var(--green); }
+.rr-rsi-val  { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+.rr-signal   { font-size: 10px; font-weight: 700; }
+.rsi2-loading { font-size: 11px; color: var(--text3); font-style: italic; padding: 12px 0; }
+
+/* ── Regime grid in BRT tab ──────────────────────────────────── */
+.regime-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  padding: 0 24px 24px;
+}
+@media (max-width: 1100px) { .regime-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 700px)  { .regime-grid { grid-template-columns: 1fr 1fr; } }

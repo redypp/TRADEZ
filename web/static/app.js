@@ -54,16 +54,33 @@ function setText(id, text, cls) {
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
+function activateTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+  if (btn) btn.classList.add('active');
+  const panel = $(`tab-${tabId}`);
+  if (panel) panel.classList.add('active');
+  if (tabId === 'journal') renderJournal(window._lastTrades);
+  if (tabId === 'screener') { fetchScreener(); fetchNews(); }
+  if (tabId === 'vwap' || tabId === 'orb' || tabId === 'rsi2') fetchStrategyStatus();
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    const panel = $(`tab-${btn.dataset.tab}`);
-    if (panel) panel.classList.add('active');
-    if (btn.dataset.tab === 'journal') renderJournal(window._lastTrades);
-  });
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 });
+
+// ── Strategy Selector → tab navigation ────────────────────────────────────────
+function switchStrategyTab(tabId, label) {
+  const sel = $('strategy-selector');
+  if (sel) sel.classList.remove('open');
+  const lbl = $('strat-label');
+  if (lbl) lbl.textContent = label;
+  document.querySelectorAll('.sm-item').forEach(i => i.classList.remove('active'));
+  const item = $(`sm-${tabId}`);
+  if (item) item.classList.add('active');
+  activateTab(tabId);
+}
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
 function tickClock() {
@@ -964,13 +981,116 @@ document.addEventListener('click', e => {
   if (sel && !sel.contains(e.target)) sel.classList.remove('open');
 });
 
-// ── Sync regime name to Strategies tab header ─────────────────────────────────
-const _origRenderRegime = renderRegime;
-renderRegime = function(regime, state) {
-  _origRenderRegime(regime, state);
-  const nameEl = $('rsh-regime-name');
-  if (nameEl && regime?.current) nameEl.textContent = regime.current.replace('_', ' ');
-};
+// ── Strategy status polling (VWAP / ORB / RSI2 pages) ────────────────────────
+async function fetchStrategyStatus() {
+  try {
+    const r = await fetch('/api/strategy/status');
+    if (!r.ok) return;
+    const d = await r.json();
+    renderVwapPage(d);
+    renderOrbPage(d);
+    renderRsi2Page(d);
+  } catch { /* silent */ }
+}
+
+function _enabledChip(enabled) {
+  if (enabled === true)  return '<span style="color:var(--green);font-weight:700">● ENABLED</span>';
+  if (enabled === false) return '<span style="color:var(--text3);font-weight:700">○ DISABLED</span>';
+  return '<span style="color:var(--text3)">—</span>';
+}
+
+function renderVwapPage(d) {
+  const s = d?.VWAP_MR || {};
+  const ec = $('vwap-enabled-chip'); if (ec) ec.innerHTML = _enabledChip(s.enabled);
+  const sig = $('vwap-sig-val');
+  if (sig) {
+    const dir = s.signal || 'NEUTRAL';
+    sig.textContent = dir;
+    sig.style.color = dir === 'LONG' ? 'var(--green)' : dir === 'SHORT' ? 'var(--red)' : 'var(--text2)';
+  }
+  if (s.close)  setText('vwap-close',    Number(s.close).toFixed(2));
+  if (s.vwap)   setText('vwap-level',    Number(s.vwap).toFixed(2));
+  if (s.deviation != null) {
+    const devEl = $('vwap-dev');
+    if (devEl) {
+      const d = s.deviation;
+      devEl.textContent = (d >= 0 ? '+' : '') + Number(d).toFixed(1) + ' pts';
+      devEl.style.color = Math.abs(d) > 4 ? (d > 0 ? 'var(--red)' : 'var(--green)') : 'var(--text2)';
+    }
+  }
+  if (s.adx != null) setText('vwap-adx', Number(s.adx).toFixed(1));
+  if (s.rsi != null) setText('vwap-rsi', Number(s.rsi).toFixed(1));
+  const elig = $('vwap-eligible');
+  if (elig) {
+    elig.textContent = s.eligible ? '✓ YES' : '✗ NO';
+    elig.style.color = s.eligible ? 'var(--green)' : 'var(--red)';
+  }
+  const note = $('vwap-signal-note');
+  if (note) note.textContent = s.note || (s.eligible ? 'Eligible — watching for deviation' : 'Not eligible (ADX too high or market closed)');
+}
+
+function renderOrbPage(d) {
+  const s = d?.ORB || {};
+  const ec = $('orb-enabled-chip'); if (ec) ec.innerHTML = _enabledChip(s.enabled);
+  const sig = $('orb-sig-val');
+  if (sig) {
+    const dir = s.signal || 'NEUTRAL';
+    sig.textContent = dir;
+    sig.style.color = dir === 'LONG' ? 'var(--green)' : dir === 'SHORT' ? 'var(--red)' : 'var(--text2)';
+  }
+  if (s.close) setText('orb-close', Number(s.close).toFixed(2));
+  if (s.orh)   { const e = $('orb-orh'); if (e) { e.textContent = Number(s.orh).toFixed(2); e.style.color = 'var(--green)'; } }
+  if (s.orl)   { const e = $('orb-orl'); if (e) { e.textContent = Number(s.orl).toFixed(2); e.style.color = 'var(--red)'; } }
+  if (s.sma20) setText('orb-sma', Number(s.sma20).toFixed(2));
+  if (s.orh && s.orl) setText('orb-range', (s.orh - s.orl).toFixed(2) + ' pts');
+  const elig = $('orb-eligible');
+  if (elig) {
+    elig.textContent = s.eligible ? '✓ YES' : '✗ NO';
+    elig.style.color = s.eligible ? 'var(--green)' : 'var(--red)';
+  }
+  const note = $('orb-signal-note');
+  if (note) note.textContent = s.note || (s.orh ? `Range: ${Number(s.orl||0).toFixed(0)} – ${Number(s.orh||0).toFixed(0)}` : 'Opening range forms 9:30–10:30 ET.');
+}
+
+function renderRsi2Page(d) {
+  const s = d?.RSI2 || {};
+  const ec = $('rsi2-enabled-chip'); if (ec) ec.innerHTML = _enabledChip(s.enabled);
+  const sig = $('rsi2-sig-val');
+  if (sig) {
+    const active = s.signals ? Object.values(s.signals).some(v => v.eligible) : false;
+    sig.textContent = active ? 'SIGNAL' : 'WAITING';
+    sig.style.color = active ? 'var(--green)' : 'var(--text2)';
+  }
+  const screener = $('rsi2-screener');
+  if (screener && s.signals) {
+    const rows = Object.entries(s.signals).map(([sym, v]) => {
+      const eligible = v.eligible;
+      const trend = v.above_200ma;
+      const rsi = v.rsi2 != null ? Number(v.rsi2).toFixed(1) : '—';
+      const price = v.close != null ? Number(v.close).toFixed(2) : '—';
+      const ma200 = v.sma200 != null ? Number(v.sma200).toFixed(2) : '—';
+      return `
+        <div class="rsi2-row ${eligible ? 'rsi2-signal' : ''}">
+          <div class="rr-sym">${sym}</div>
+          <div class="rr-price mono">${price}</div>
+          <div class="rr-ma mono">${ma200}</div>
+          <div class="rr-trend ${trend ? 'green' : 'red'}">${trend ? '▲ UPTREND' : '▼ DOWNTREND'}</div>
+          <div class="rr-rsi">
+            <div class="rr-rsi-bar-wrap"><div class="rr-rsi-bar ${Number(rsi) < 10 ? 'rsi-low' : ''}" style="width:${Math.min(100, Number(rsi)||0)}%"></div></div>
+            <span class="rr-rsi-val ${Number(rsi) < 10 ? 'green' : ''}">${rsi}</span>
+          </div>
+          <div class="rr-signal ${eligible ? 'green' : 'muted'}">${eligible ? '⚡ BUY SIGNAL' : '—'}</div>
+        </div>`;
+    });
+    screener.innerHTML = `
+      <div class="rsi2-header">
+        <span>Symbol</span><span>Price</span><span>200-MA</span><span>Trend</span><span>RSI(2)</span><span>Signal</span>
+      </div>
+      ${rows.join('')}`;
+  } else if (screener) {
+    screener.innerHTML = '<div class="rsi2-loading">Awaiting data — fires at market close</div>';
+  }
+}
 
 // ── AI Screener ───────────────────────────────────────────────────────────────
 

@@ -20,50 +20,55 @@
   </div>
 
   <nav class="tb-tabs">
-    <button class="tab-btn active" data-tab="live">
-      <span class="tab-dot" id="live-dot"></span>Live
+    <button class="tab-btn active" data-tab="brt">
+      <span class="tab-dot" id="live-dot"></span>BRT
     </button>
+    <button class="tab-btn" data-tab="vwap">VWAP MR</button>
+    <button class="tab-btn" data-tab="orb">ORB</button>
+    <button class="tab-btn" data-tab="rsi2">RSI2</button>
     <button class="tab-btn" data-tab="screener">AI Screener</button>
-    <button class="tab-btn" data-tab="strategies">Strategies</button>
-    <button class="tab-btn" data-tab="methods">Methods</button>
-    <button class="tab-btn" data-tab="lab">Lab</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
     <button class="tab-btn" data-tab="stack">Stack</button>
-    <button class="tab-btn" data-tab="pine">Pine</button>
   </nav>
 
   <div class="tb-right">
     <div class="strategy-selector" id="strategy-selector">
       <button class="strategy-btn" id="strategy-btn" onclick="toggleStrategyMenu()">
         <span class="strat-dot"></span>
-        <span class="strat-label">BRT</span>
+        <span class="strat-label" id="strat-label">BRT · MES</span>
         <svg class="strat-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
       <div class="strategy-menu" id="strategy-menu">
-        <div class="sm-header">ACTIVE STRATEGY</div>
-        <button class="sm-item active">
+        <div class="sm-header">GO TO STRATEGY</div>
+        <button class="sm-item active" id="sm-brt" onclick="switchStrategyTab('brt','BRT · MES')">
           <div class="sm-item-dot"></div>
           <div>
             <div class="sm-item-name">Break &amp; Retest</div>
-            <div class="sm-item-sub">MES · 15-min · Live</div>
+            <div class="sm-item-sub">MES · 15-min · Trend-follow</div>
           </div>
-          <span class="sm-check">✓</span>
         </button>
         <div class="sm-divider"></div>
-        <div class="sm-item disabled">
-          <div class="sm-item-dot dim"></div>
+        <button class="sm-item" id="sm-vwap" onclick="switchStrategyTab('vwap','VWAP MR · MES')">
+          <div class="sm-item-dot"></div>
           <div>
-            <div class="sm-item-name dim">VWAP Mean Reversion</div>
-            <div class="sm-item-sub">Coming soon</div>
+            <div class="sm-item-name">VWAP Mean Reversion</div>
+            <div class="sm-item-sub">MES · 5-min · Counter-trend</div>
           </div>
-        </div>
-        <div class="sm-item disabled">
-          <div class="sm-item-dot dim"></div>
+        </button>
+        <button class="sm-item" id="sm-orb" onclick="switchStrategyTab('orb','ORB · MES')">
+          <div class="sm-item-dot"></div>
           <div>
-            <div class="sm-item-name dim">Opening Range Breakout</div>
-            <div class="sm-item-sub">Coming soon</div>
+            <div class="sm-item-name">Opening Range Breakout</div>
+            <div class="sm-item-sub">MES · 60-min · Breakout</div>
           </div>
-        </div>
+        </button>
+        <button class="sm-item" id="sm-rsi2" onclick="switchStrategyTab('rsi2','RSI2 · SPY/QQQ')">
+          <div class="sm-item-dot"></div>
+          <div>
+            <div class="sm-item-name">RSI(2) Daily</div>
+            <div class="sm-item-sub">SPY · QQQ · IWM · Mean-reversion</div>
+          </div>
+        </button>
       </div>
     </div>
     <span id="conn-pill" class="conn-pill connecting">● CONNECTING</span>
@@ -72,8 +77,8 @@
   </div>
 </header>
 
-<!-- ══════════════════════════════════════ TAB: LIVE -->
-<div id="tab-live" class="tab-panel active">
+<!-- ══════════════════════════════════════ TAB: BRT -->
+<div id="tab-brt" class="tab-panel active">
 
   <!-- Regime banner -->
   <div id="regime-bar" class="regime-bar">
@@ -246,7 +251,56 @@
     </div>
   </div>
 
-</div><!-- /tab-live -->
+  <!-- Regime Cards ─────────────────────────────────────────── -->
+  <div class="page-header" style="padding-top:24px">
+    <h2 class="page-title" style="font-size:15px">Adaptive Regimes</h2>
+    <p class="page-sub">Parameters shift automatically as VIX changes — the strategy logic never changes, only the thresholds.</p>
+  </div>
+  <div id="rsh-regime-name" style="display:none"></div>
+  <div class="regime-grid">
+    <div class="regime-card" data-regime="TRENDING">
+      <div class="rc-header"><div class="rc-color trending"></div><div><div class="rc-name">TRENDING</div><div class="rc-vix">VIX &lt; 12</div></div><div id="active-TRENDING" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+      <p class="rc-desc">Low-fear bull run. Most permissive filters — capture clean breakouts with tight stops.</p>
+      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">18</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.20 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">20</span></div></div>
+      <div class="rc-footer trending-footer">Full size · All level types</div>
+    </div>
+    <div class="regime-card" data-regime="NORMAL">
+      <div class="rc-header"><div class="rc-color normal"></div><div><div class="rc-name">NORMAL</div><div class="rc-vix">VIX 12 – 20</div></div><div id="active-NORMAL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+      <p class="rc-desc">Baseline market conditions. Standard parameters — balanced between risk and opportunity.</p>
+      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.30 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">14</span></div></div>
+      <div class="rc-footer normal-footer">Full size · All level types</div>
+    </div>
+    <div class="regime-card" data-regime="CAUTIOUS">
+      <div class="rc-header"><div class="rc-color cautious"></div><div><div class="rc-name">CAUTIOUS</div><div class="rc-vix">VIX 20 – 30</div></div><div id="active-CAUTIOUS" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+      <p class="rc-desc">Elevated volatility. Stricter entry filters, wider stops to absorb noise.</p>
+      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">22</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.40 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">10</span></div></div>
+      <div class="rc-footer cautious-footer">Half size · PDH/PDL &amp; VWAP only</div>
+    </div>
+    <div class="regime-card" data-regime="HIGH_VOL">
+      <div class="rc-header"><div class="rc-color highvol"></div><div><div class="rc-name">HIGH VOL</div><div class="rc-vix">VIX 30 – 40</div></div><div id="active-HIGH_VOL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+      <p class="rc-desc">High fear. Defensive posture — minimum size, wide stops, strongest confirmation required.</p>
+      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">25</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.50 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">1.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">8</span></div></div>
+      <div class="rc-footer highvol-footer">Min size · PDH/PDL only · Long only</div>
+    </div>
+    <div class="regime-card" data-regime="NO_TRADE">
+      <div class="rc-header"><div class="rc-color notrade"></div><div><div class="rc-name">NO TRADE</div><div class="rc-vix">VIX &gt; 40</div></div><div id="active-NO_TRADE" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+      <p class="rc-desc">Panic territory. All entries blocked — capital preservation only. Exit any open positions.</p>
+      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">New entries</span><span class="rp-val">BLOCKED</span></div><div class="rp-row"><span class="rp-lbl">Open positions</span><span class="rp-val">Exit ASAP</span></div></div>
+      <div class="rc-footer notrade-footer">NO NEW TRADES</div>
+    </div>
+  </div>
+
+  <!-- Pine Script viewer ────────────────────────────────────── -->
+  <div class="page-header" style="padding-top:24px">
+    <h2 class="page-title" style="font-size:15px">Pine Script v6</h2>
+    <p class="page-sub">TradingView strategy — paste into Pine Editor for visual backtesting and parameter tuning.</p>
+  </div>
+  <div class="card pine-card" style="margin:0 24px 32px">
+    <div class="card-head">PINE SCRIPT v6<span class="pine-version-badge">v6</span><button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button></div>
+    <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
+  </div>
+
+</div><!-- /tab-brt -->
 
 
 <!-- ══════════════════════════════════════ TAB: SCREENER -->
@@ -362,847 +416,228 @@
 </div><!-- /tab-screener -->
 
 
-<!-- ══════════════════════════════════════ TAB: STRATEGIES -->
-<div id="tab-strategies" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Break &amp; Retest</h1>
-    <p class="page-sub">One strategy. Five market conditions. Parameters adapt automatically to VIX — the strategy itself never changes.</p>
-  </div>
-
-  <!-- Strategy definition card -->
-  <div class="card brt-def-card">
-    <div class="brt-def-inner">
-      <div class="brt-def-main">
-        <div class="brt-def-badge">ACTIVE STRATEGY</div>
-        <h2 class="brt-def-title">Break &amp; Retest (BRT)</h2>
-        <p class="brt-def-body">Price breaks a key structural level with conviction — confirmed by above-average volume and a meaningful candle body. The bot then waits for price to return and retest that same level. Entry fires on the retest candle, with stop loss placed below the level and take profit at a fixed R:R multiple.</p>
-        <div class="brt-def-pillrow">
-          <span class="brt-pill">MES · Micro E-mini S&amp;P</span>
-          <span class="brt-pill">15-min candles</span>
-          <span class="brt-pill">Intraday · 9:30–15:00 ET</span>
-          <span class="brt-pill">1–2.5R target</span>
-        </div>
-      </div>
-      <div class="brt-def-steps">
-        <div class="bds-step"><span class="bds-num">1</span><div><div class="bds-name">Break</div><div class="bds-desc">Candle closes through a key level with volume &gt; 1× avg and body &gt; ATR threshold</div></div></div>
-        <div class="bds-step"><span class="bds-num">2</span><div><div class="bds-name">Watch</div><div class="bds-desc">Bot enters WATCHING state — monitors for a retest within the max-retest-bar window</div></div></div>
-        <div class="bds-step"><span class="bds-num">3</span><div><div class="bds-name">Retest</div><div class="bds-desc">Price returns to the level ± ATR tolerance. EMA20, ADX, RSI and VSA filters must pass</div></div></div>
-        <div class="bds-step"><span class="bds-num">4</span><div><div class="bds-name">Entry</div><div class="bds-desc">Market order fires. SL below/above level. TP at regime R:R. Breakeven at 1:1.</div></div></div>
+<!-- ══════════════════════════════════════ TAB: VWAP MR -->
+<div id="tab-vwap" class="tab-panel">
+  <div class="strat-page-header">
+    <div class="sph-info">
+      <div class="sph-eyebrow">STRATEGY · MES · 5-MIN</div>
+      <h1 class="sph-title">VWAP Mean Reversion</h1>
+      <p class="sph-desc">Counter-trend strategy that fires on range-bound days when price extends significantly from VWAP — then fades back to fair value.</p>
+    </div>
+    <div class="sph-status-group">
+      <div class="sph-stat-chip" id="vwap-enabled-chip">—</div>
+      <div class="sph-sig" id="vwap-live-sig">
+        <div class="sph-sig-label">LIVE SIGNAL</div>
+        <div class="sph-sig-val" id="vwap-sig-val">—</div>
       </div>
     </div>
   </div>
 
-  <!-- Regime section header -->
-  <div class="regime-section-header">
-    <div>
-      <div class="rsh-title">Adaptive Regimes</div>
-      <div class="rsh-sub">VIX drives automatic parameter switching — 2 consecutive ticks required before any regime change (hysteresis)</div>
-    </div>
-    <div id="rsh-current" class="rsh-current">Current: <span id="rsh-regime-name">—</span></div>
-  </div>
-
-  <div class="regime-grid">
-
-    <!-- TRENDING -->
-    <div class="regime-card" data-regime="TRENDING">
-      <div class="rc-header">
-        <div class="rc-color trending"></div>
-        <div>
-          <div class="rc-name">TRENDING</div>
-          <div class="rc-vix">VIX &lt; 15</div>
+  <div class="strat-page-body">
+    <!-- Live signal card -->
+    <div class="spb-main">
+      <div class="card">
+        <div class="card-head">LIVE · MES vs VWAP</div>
+        <div class="vwap-live-grid" id="vwap-live-grid">
+          <div class="vlg-item"><div class="vlg-lbl">MES Price</div><div class="vlg-val mono" id="vwap-close">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">VWAP</div><div class="vlg-val mono" id="vwap-level">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">Deviation</div><div class="vlg-val mono" id="vwap-dev">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">ADX</div><div class="vlg-val mono" id="vwap-adx">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">RSI</div><div class="vlg-val mono" id="vwap-rsi">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">Eligible</div><div class="vlg-val" id="vwap-eligible">—</div></div>
         </div>
-        <div id="active-TRENDING" class="rc-active-badge" style="display:none">ACTIVE</div>
+        <div class="vwap-signal-note" id="vwap-signal-note">Awaiting data…</div>
       </div>
-      <p class="rc-desc">Low volatility, strong directional bias. Maximum aggression — tighter stops, higher R:R targets, longer retest windows.</p>
-      <div class="rc-params">
-        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div>
-        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.25 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.5R</span></div>
-        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">16</span></div>
-        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.30 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.40 × ATR</span></div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">PARAMETERS</div>
+        <div class="param-list">
+          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">MES · ES</span></div>
+          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">5-min candles</span></div>
+          <div class="pm-row"><span class="pm-lbl">ADX gate (max)</span><span class="pm-val">15 — ranging days only</span></div>
+          <div class="pm-row"><span class="pm-lbl">Entry deviation</span><span class="pm-val">&gt; 1.5σ from VWAP</span></div>
+          <div class="pm-row"><span class="pm-lbl">Entry trigger</span><span class="pm-val">Reversal candle at deviation</span></div>
+          <div class="pm-row"><span class="pm-lbl">Target</span><span class="pm-val">VWAP (fair value)</span></div>
+          <div class="pm-row"><span class="pm-lbl">Stop</span><span class="pm-val">1.0 × ATR beyond entry</span></div>
+          <div class="pm-row"><span class="pm-lbl">Session</span><span class="pm-val">10:30 – 15:00 ET</span></div>
+        </div>
       </div>
-      <div class="rc-footer trending-footer">Full size · All level types</div>
     </div>
 
-    <!-- NORMAL -->
-    <div class="regime-card" data-regime="NORMAL">
-      <div class="rc-header">
-        <div class="rc-color normal"></div>
-        <div>
-          <div class="rc-name">NORMAL</div>
-          <div class="rc-vix">VIX 15 – 20</div>
+    <!-- How it works -->
+    <div class="spb-side">
+      <div class="card">
+        <div class="card-head">HOW IT WORKS</div>
+        <div class="strat-howto">
+          <div class="sht-step"><span class="sht-num">1</span><span>Market opens. Bot computes intraday VWAP from the first candle.</span></div>
+          <div class="sht-step"><span class="sht-num">2</span><span>ADX gate checks: if ADX &gt; 15, market is trending — strategy skips entirely.</span></div>
+          <div class="sht-step"><span class="sht-num">3</span><span>Price extends &gt; 1.5σ above VWAP → short signal. Below → long signal.</span></div>
+          <div class="sht-step"><span class="sht-num">4</span><span>A reversal candle confirms (bearish for short, bullish for long) — entry placed.</span></div>
+          <div class="sht-step"><span class="sht-num">5</span><span>Target is VWAP. Stop is ATR-based beyond the extreme. EOD hard close at 15:00 ET.</span></div>
+          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Complements BRT — fires on days BRT sits out. The two strategies rarely conflict.</span></div>
         </div>
-        <div id="active-NORMAL" class="rc-active-badge" style="display:none">ACTIVE</div>
       </div>
-      <p class="rc-desc">Baseline market conditions. Standard parameters — balanced between risk and opportunity. Default operating mode.</p>
-      <div class="rc-params">
-        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div>
-        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.30 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div>
-        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">14</span></div>
-        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.30 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.40 × ATR</span></div>
-      </div>
-      <div class="rc-footer normal-footer">Full size · All level types</div>
-    </div>
-
-    <!-- CAUTIOUS -->
-    <div class="regime-card" data-regime="CAUTIOUS">
-      <div class="rc-header">
-        <div class="rc-color cautious"></div>
-        <div>
-          <div class="rc-name">CAUTIOUS</div>
-          <div class="rc-vix">VIX 20 – 30</div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">ENTRY RULES</div>
+        <div class="strat-rules">
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>ADX &lt; 15 (ranging, not trending)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price deviation &gt; 1.5σ from VWAP</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Reversal candle closes back toward VWAP</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Volume &gt; average (participation)</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>ADX &gt; 15 — skip, market is trending</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>After 15:00 ET — no new entries</span></div>
         </div>
-        <div id="active-CAUTIOUS" class="rc-active-badge" style="display:none">ACTIVE</div>
       </div>
-      <p class="rc-desc">Elevated volatility. Stricter entry filters, wider stops to absorb noise, shorter retest windows before setup invalidates.</p>
-      <div class="rc-params">
-        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">22</span></div>
-        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.40 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div>
-        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">10</span></div>
-        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.25 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.50 × ATR</span></div>
-      </div>
-      <div class="rc-footer cautious-footer">Half size · PDH/PDL &amp; VWAP only</div>
-    </div>
-
-    <!-- HIGH_VOL -->
-    <div class="regime-card" data-regime="HIGH_VOL">
-      <div class="rc-header">
-        <div class="rc-color highvol"></div>
-        <div>
-          <div class="rc-name">HIGH VOL</div>
-          <div class="rc-vix">VIX 30 – 40</div>
-        </div>
-        <div id="active-HIGH_VOL" class="rc-active-badge" style="display:none">ACTIVE</div>
-      </div>
-      <p class="rc-desc">High fear environment. Defensive posture — minimum size, very wide stops, strongest trend confirmation required.</p>
-      <div class="rc-params">
-        <div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">25</span></div>
-        <div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.50 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">1.5R</span></div>
-        <div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">8</span></div>
-        <div class="rp-row"><span class="rp-lbl">Level tolerance</span><span class="rp-val">0.20 × ATR</span></div>
-        <div class="rp-row"><span class="rp-lbl">Break body min</span><span class="rp-val">0.60 × ATR</span></div>
-      </div>
-      <div class="rc-footer highvol-footer">Min size · PDH/PDL only · Long only</div>
-    </div>
-
-    <!-- NO_TRADE -->
-    <div class="regime-card" data-regime="NO_TRADE">
-      <div class="rc-header">
-        <div class="rc-color notrade"></div>
-        <div>
-          <div class="rc-name">NO TRADE</div>
-          <div class="rc-vix">VIX &gt; 40</div>
-        </div>
-        <div id="active-NO_TRADE" class="rc-active-badge" style="display:none">ACTIVE</div>
-      </div>
-      <p class="rc-desc">Extreme market stress. All trading halted — risk is unquantifiable in these conditions. Bot sits flat and monitors only.</p>
-      <div class="rc-params rc-params-blocked">
-        <div class="blocked-msg">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-          All entries blocked
-        </div>
-        <div class="rp-row muted"><span class="rp-lbl">ADX minimum</span><span class="rp-val">—</span></div>
-        <div class="rp-row muted"><span class="rp-lbl">SL buffer</span><span class="rp-val">—</span></div>
-        <div class="rp-row muted"><span class="rp-lbl">Take profit</span><span class="rp-val">—</span></div>
-        <div class="rp-row muted"><span class="rp-lbl">Max retest bars</span><span class="rp-val">—</span></div>
-      </div>
-      <div class="rc-footer notrade-footer">No trades · Monitor only</div>
-    </div>
-
-  </div><!-- /regime-grid -->
-
-  <!-- Regime comparison table -->
-  <div class="card compare-card">
-    <div class="card-head">PARAMETER COMPARISON</div>
-    <div class="table-wrap">
-      <table class="compare-table">
-        <thead>
-          <tr>
-            <th>Parameter</th>
-            <th class="th-trending">TRENDING<br/><span class="th-vix">VIX &lt;15</span></th>
-            <th class="th-normal">NORMAL<br/><span class="th-vix">VIX 15–20</span></th>
-            <th class="th-cautious">CAUTIOUS<br/><span class="th-vix">VIX 20–30</span></th>
-            <th class="th-highvol">HIGH VOL<br/><span class="th-vix">VIX 30–40</span></th>
-            <th class="th-notrade">NO TRADE<br/><span class="th-vix">VIX &gt;40</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>ADX minimum</td><td>20</td><td>20</td><td>22</td><td>25</td><td class="muted">—</td></tr>
-          <tr><td>SL buffer</td><td>0.25×ATR</td><td>0.30×ATR</td><td>0.40×ATR</td><td>0.50×ATR</td><td class="muted">—</td></tr>
-          <tr><td>Take profit R:R</td><td class="green">2.5R</td><td>2.0R</td><td>2.0R</td><td class="amber">1.5R</td><td class="muted">—</td></tr>
-          <tr><td>Max retest bars</td><td class="green">16</td><td>14</td><td>12</td><td class="amber">8</td><td class="muted">—</td></tr>
-          <tr><td>Level tolerance</td><td>0.30×ATR</td><td>0.30×ATR</td><td>0.25×ATR</td><td>0.20×ATR</td><td class="muted">—</td></tr>
-          <tr><td>Break body min</td><td>0.40×ATR</td><td>0.40×ATR</td><td>0.50×ATR</td><td>0.60×ATR</td><td class="muted">—</td></tr>
-          <tr><td>Position sizing</td><td class="green">Full</td><td class="green">Full</td><td class="amber">Half</td><td class="red">Min</td><td class="muted">—</td></tr>
-          <tr><td>Allowed levels</td><td>All</td><td>All</td><td>PDH/PDL + VWAP</td><td>PDH/PDL only</td><td class="muted">None</td></tr>
-          <tr><td>Direction</td><td>Long &amp; Short</td><td>Long &amp; Short</td><td>Long &amp; Short</td><td>Long only</td><td class="muted">—</td></tr>
-        </tbody>
-      </table>
     </div>
   </div>
+</div><!-- /tab-vwap -->
 
-</div><!-- /tab-strategies -->
 
-
-<!-- ══════════════════════════════════════ TAB: METHODS -->
-<div id="tab-methods" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Break &amp; Retest — Signal Methods</h1>
-    <p class="page-sub">All logic runs on 15-minute MES candles. The strategy uses a state machine: NEUTRAL → WATCHING → ENTRY (or timeout back to NEUTRAL).</p>
-  </div>
-
-  <!-- State machine diagram -->
-  <div class="card statemachine-card">
-    <div class="card-head">STATE MACHINE</div>
-    <div class="sm-flow">
-      <div class="sm-state neutral-state">
-        <div class="sm-dot neutral-dot"></div>
-        <div class="sm-name">NEUTRAL</div>
-        <div class="sm-desc">Scanning all levels<br/>every 15-min bar</div>
-      </div>
-      <div class="sm-arrow">
-        <div class="sa-line"></div>
-        <div class="sa-label">break detected<br/>+ volume + body</div>
-        <div class="sa-tip">→</div>
-      </div>
-      <div class="sm-states-mid">
-        <div class="sm-state long-state">
-          <div class="sm-dot long-dot"></div>
-          <div class="sm-name">WATCHING LONG</div>
-          <div class="sm-desc">Awaiting bullish<br/>retest candle</div>
-        </div>
-        <div class="sm-state short-state">
-          <div class="sm-dot short-dot"></div>
-          <div class="sm-name">WATCHING SHORT</div>
-          <div class="sm-desc">Awaiting bearish<br/>retest candle</div>
-        </div>
-      </div>
-      <div class="sm-arrow">
-        <div class="sa-line"></div>
-        <div class="sa-label">all criteria<br/>confirmed</div>
-        <div class="sa-tip">→</div>
-      </div>
-      <div class="sm-state entry-state">
-        <div class="sm-dot entry-dot"></div>
-        <div class="sm-name">ENTRY</div>
-        <div class="sm-desc">Signal fired<br/>SL + TP set</div>
-      </div>
-      <div class="sm-arrow sm-arrow-timeout">
-        <div class="sa-line dashed"></div>
-        <div class="sa-label red-label">timeout / invalidated</div>
-        <div class="sa-tip red-tip">↩</div>
+<!-- ══════════════════════════════════════ TAB: ORB -->
+<div id="tab-orb" class="tab-panel">
+  <div class="strat-page-header">
+    <div class="sph-info">
+      <div class="sph-eyebrow">STRATEGY · MES/MNQ · 60-MIN</div>
+      <h1 class="sph-title">Opening Range Breakout</h1>
+      <p class="sph-desc">Captures the first-hour directional move. Defines the 9:30–10:30 ET opening range, then trades confirmed breaks of the high or low with trend alignment.</p>
+    </div>
+    <div class="sph-status-group">
+      <div class="sph-stat-chip" id="orb-enabled-chip">—</div>
+      <div class="sph-sig" id="orb-live-sig">
+        <div class="sph-sig-label">LIVE SIGNAL</div>
+        <div class="sph-sig-val" id="orb-sig-val">—</div>
       </div>
     </div>
   </div>
 
-  <div class="methods-grid">
+  <div class="strat-page-body">
+    <div class="spb-main">
+      <div class="card">
+        <div class="card-head">LIVE · OPENING RANGE</div>
+        <div class="vwap-live-grid" id="orb-live-grid">
+          <div class="vlg-item"><div class="vlg-lbl">MES Price</div><div class="vlg-val mono" id="orb-close">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">OR High</div><div class="vlg-val mono green" id="orb-orh">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">OR Low</div><div class="vlg-val mono red" id="orb-orl">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">SMA20</div><div class="vlg-val mono" id="orb-sma">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">Range pts</div><div class="vlg-val mono" id="orb-range">—</div></div>
+          <div class="vlg-item"><div class="vlg-lbl">Eligible</div><div class="vlg-val" id="orb-eligible">—</div></div>
+        </div>
+        <div class="vwap-signal-note" id="orb-signal-note">Opening range forms 9:30–10:30 ET.</div>
+      </div>
 
-    <!-- Level Priority -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-levels">L</div>
-        <div>
-          <div class="mc-title">Level Priority</div>
-          <div class="mc-sub">4 level types, checked in order</div>
-        </div>
-      </div>
-      <div class="mc-list">
-        <div class="mc-item"><span class="mi-rank">1</span><div><div class="mi-name">VWAP</div><div class="mi-desc">Volume-weighted avg price · resets daily at open · highest confluence</div></div></div>
-        <div class="mc-item"><span class="mi-rank">2</span><div><div class="mi-name">PDH / PDL</div><div class="mi-desc">Previous day high &amp; low · institutional reference prices</div></div></div>
-        <div class="mc-item"><span class="mi-rank">3</span><div><div class="mi-name">ORH / ORL</div><div class="mi-desc">Opening range high &amp; low · first 30 min (9:30–10:00 ET)</div></div></div>
-        <div class="mc-item"><span class="mi-rank">4</span><div><div class="mi-name">SWING</div><div class="mi-desc">Rolling N-bar high &amp; low · dynamic support &amp; resistance</div></div></div>
-      </div>
-    </div>
-
-    <!-- Break Detection -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-break">B</div>
-        <div>
-          <div class="mc-title">Break Detection</div>
-          <div class="mc-sub">_detect_brt_signals() — all 3 must pass</div>
-        </div>
-      </div>
-      <div class="mc-list">
-        <div class="mc-item check">
-          <div class="mi-check">✓</div>
-          <div>
-            <div class="mi-name">Candle close</div>
-            <div class="mi-desc">Close crosses level ± <code>BRT_BREAK_BUFFER × ATR</code> (regime sets break buffer)</div>
-          </div>
-        </div>
-        <div class="mc-item check">
-          <div class="mi-check">✓</div>
-          <div>
-            <div class="mi-name">Volume confirmation</div>
-            <div class="mi-desc">Volume &gt; <code>BRT_VOLUME_THRESHOLD × vol_ma(20)</code> — requires above-avg participation</div>
-          </div>
-        </div>
-        <div class="mc-item check">
-          <div class="mi-check">✓</div>
-          <div>
-            <div class="mi-name">Break candle body</div>
-            <div class="mi-desc">|close − open| &gt; <code>break_body_min × ATR</code> — no doji / indecision breaks</div>
-          </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">PARAMETERS</div>
+        <div class="param-list">
+          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">MES · MNQ</span></div>
+          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">60-min candles</span></div>
+          <div class="pm-row"><span class="pm-lbl">Range window</span><span class="pm-val">9:30 – 10:30 ET (first hour)</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">SMA20 — price above for longs</span></div>
+          <div class="pm-row"><span class="pm-lbl">Break confirmation</span><span class="pm-val">Close outside range on hourly bar</span></div>
+          <div class="pm-row"><span class="pm-lbl">Stop</span><span class="pm-val">Opposite side of opening range</span></div>
+          <div class="pm-row"><span class="pm-lbl">EOD exit</span><span class="pm-val">15:00 ET (no overnight)</span></div>
         </div>
       </div>
     </div>
 
-    <!-- Retest Criteria -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-retest">R</div>
-        <div>
-          <div class="mc-title">Retest Criteria</div>
-          <div class="mc-sub">All 6 conditions required for entry</div>
+    <div class="spb-side">
+      <div class="card">
+        <div class="card-head">HOW IT WORKS</div>
+        <div class="strat-howto">
+          <div class="sht-step"><span class="sht-num">1</span><span>9:30 ET open: bot starts recording candles for the opening range.</span></div>
+          <div class="sht-step"><span class="sht-num">2</span><span>10:30 ET: range is locked — ORH = first-hour high, ORL = first-hour low.</span></div>
+          <div class="sht-step"><span class="sht-num">3</span><span>SMA20 filter: bullish bias if price &gt; SMA20, bearish if below.</span></div>
+          <div class="sht-step"><span class="sht-num">4</span><span>Price closes above ORH with trend confirmation → LONG. Below ORL → SHORT.</span></div>
+          <div class="sht-step"><span class="sht-num">5</span><span>Target: range-width extension (1× or 2× the range). Hard EOD exit at 15:00 ET.</span></div>
+          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Best on trend days after an overnight gap or strong pre-market move. Fails on choppy open-flat days.</span></div>
         </div>
       </div>
-      <div class="mc-list">
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">In retest zone</div><div class="mi-desc">Price touches <code>[level ± tolerance × ATR]</code> — must revisit the broken level</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Candle direction</div><div class="mi-desc">Bullish (close &gt; open) for long · Bearish (open &gt; close) for short</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Close confirmation</div><div class="mi-desc">Close clearly above (long) or below (short) the broken level</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">EMA 20 alignment</div><div class="mi-desc">Long: close &gt; EMA20 &nbsp;|&nbsp; Short: close &lt; EMA20</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">ADX threshold</div><div class="mi-desc">ADX &gt; <code>adx_min</code> (regime-adaptive: 20 → 25) — confirming trend strength</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">RSI range</div><div class="mi-desc">Long: RSI 35–75 &nbsp;|&nbsp; Short: RSI 25–65 — avoids extreme overextension</div></div></div>
-      </div>
-    </div>
-
-    <!-- SL / TP -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-risk">$</div>
-        <div>
-          <div class="mc-title">Stop Loss &amp; Take Profit</div>
-          <div class="mc-sub">ATR-based, regime-adaptive sizing</div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">ENTRY RULES</div>
+        <div class="strat-rules">
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>After 10:30 ET (range fully formed)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Hourly close outside the opening range</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>SMA20 alignment matches direction</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Range quality filter (min size &gt; 0.5 × ATR)</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Before 10:30 ET — range not yet set</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>After 14:00 ET — too close to EOD exit</span></div>
         </div>
       </div>
-      <div class="mc-list">
-        <div class="mc-item">
-          <div class="mi-check green-check">SL</div>
-          <div>
-            <div class="mi-name">Stop Loss (Long)</div>
-            <div class="mi-desc"><code>min(candle_low, level) − sl_buffer × ATR</code></div>
-          </div>
-        </div>
-        <div class="mc-item">
-          <div class="mi-check green-check">SL</div>
-          <div>
-            <div class="mi-name">Stop Loss (Short)</div>
-            <div class="mi-desc"><code>max(candle_high, level) + sl_buffer × ATR</code></div>
-          </div>
-        </div>
-        <div class="mc-item">
-          <div class="mi-check red-check">TP</div>
-          <div>
-            <div class="mi-name">Take Profit (both)</div>
-            <div class="mi-desc"><code>entry ± (entry − stop) × tp_rr</code> · R:R is regime-adaptive (1.5R – 2.5R)</div>
-          </div>
-        </div>
-        <div class="mc-item">
-          <div class="mi-check amber-check">R</div>
-          <div>
-            <div class="mi-name">Risk per trade</div>
-            <div class="mi-desc">Contracts sized by account risk % / (entry − SL × $5/pt MES multiplier)</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Session Rules -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-session">T</div>
-        <div>
-          <div class="mc-title">Session Rules</div>
-          <div class="mc-sub">Time filters applied before entry</div>
-        </div>
-      </div>
-      <div class="mc-list">
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Session window</div><div class="mi-desc">Entries only between <code>10:00 – 15:00 ET</code> · avoids open auction and late illiquidity</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Scheduler cadence</div><div class="mi-desc">Runs at <code>:02</code> past each hour · checks last completed 15-min bar</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Daily drawdown stop</div><div class="mi-desc">Trading halts if session equity falls more than <code>MAX_DAILY_DRAWDOWN</code> (default 3%) from the open</div></div></div>
-        <div class="mc-item check"><div class="mi-check">✓</div><div><div class="mi-name">Max daily trades</div><div class="mi-desc">Up to <code>MAX_TRADES_PER_DAY</code> (default 5) trades/session · prevents overtrading in choppy tape</div></div></div>
-      </div>
-    </div>
-
-    <!-- Indicators -->
-    <div class="card method-card">
-      <div class="mc-header">
-        <div class="mc-icon icon-ind">I</div>
-        <div>
-          <div class="mc-title">Indicator Calculations</div>
-          <div class="mc-sub">prepare_break_retest() output columns</div>
-        </div>
-      </div>
-      <div class="mc-list">
-        <div class="mc-item"><div class="mi-tag">ATR</div><div><div class="mi-name">Average True Range</div><div class="mi-desc">14-period · scales all buffer calculations to current volatility</div></div></div>
-        <div class="mc-item"><div class="mi-tag">EMA</div><div><div class="mi-name">Exponential MA (20)</div><div class="mi-desc">Trend direction filter · price above = bullish bias</div></div></div>
-        <div class="mc-item"><div class="mi-tag">ADX</div><div><div class="mi-name">Avg Directional Index</div><div class="mi-desc">14-period · measures trend strength, not direction</div></div></div>
-        <div class="mc-item"><div class="mi-tag">RSI</div><div><div class="mi-name">Relative Strength Index</div><div class="mi-desc">14-period · momentum filter, keeps out extreme mean-reversion zones</div></div></div>
-        <div class="mc-item"><div class="mi-tag">VOL</div><div><div class="mi-name">Volume MA (20)</div><div class="mi-desc">20-bar rolling average · baseline for break volume confirmation</div></div></div>
-        <div class="mc-item"><div class="mi-tag">VWAP</div><div><div class="mi-name">Intraday VWAP</div><div class="mi-desc">Resets daily at market open · anchored to session cumulative vol</div></div></div>
-      </div>
-    </div>
-
-  </div><!-- /methods-grid -->
-</div><!-- /tab-methods -->
-
-<!-- ══════════════════════════════════════ TAB: LAB -->
-<div id="tab-lab" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Strategy Lab</h1>
-    <p class="page-sub">Run a full backtest + Monte Carlo validation on any strategy before going live. Minimum 100 trades for statistical confidence.</p>
-  </div>
-
-  <!-- Controls -->
-  <div class="card lab-controls">
-    <div class="lab-row">
-      <div class="lab-field">
-        <label class="lab-label">Strategy</label>
-        <select id="lab-strategy" class="lab-select">
-          <option value="BRT">Break &amp; Retest (BRT)</option>
-          <option value="ORB" disabled>Opening Range Breakout — coming soon</option>
-          <option value="DONCHIAN" disabled>Donchian Breakout — coming soon</option>
-          <option value="RSI2" disabled>RSI(2) Daily — coming soon</option>
-          <option value="VWAP_MR" disabled>VWAP Mean Reversion — coming soon</option>
-        </select>
-      </div>
-      <div class="lab-field">
-        <label class="lab-label">Timeframe</label>
-        <select id="lab-timeframe" class="lab-select">
-          <option value="5min">5 min</option>
-          <option value="15min" selected>15 min</option>
-          <option value="1h">1 hour</option>
-          <option value="1d">Daily</option>
-        </select>
-      </div>
-      <div class="lab-field">
-        <label class="lab-label">Instrument</label>
-        <select id="lab-symbol" class="lab-select">
-          <option value="MES">MES (Micro E-mini S&amp;P)</option>
-          <option value="MGC">MGC (Micro Gold)</option>
-          <option value="SPY">SPY (S&amp;P 500 ETF)</option>
-          <option value="QQQ">QQQ (Nasdaq ETF)</option>
-          <option value="GC">GC (Gold Futures)</option>
-          <option value="SIL">SIL (Silver Futures)</option>
-        </select>
-      </div>
-      <div class="lab-field">
-        <label class="lab-label">Capital ($)</label>
-        <input id="lab-capital" class="lab-input" type="number" value="10000" min="1000" step="1000"/>
-      </div>
-      <div class="lab-field lab-field-check">
-        <label class="lab-label">Monte Carlo</label>
-        <label class="lab-toggle">
-          <input type="checkbox" id="lab-mc" checked/>
-          <span class="lab-toggle-slider"></span>
-        </label>
-      </div>
-      <button id="lab-run-btn" class="lab-run-btn">▶ Run Backtest</button>
     </div>
   </div>
+</div><!-- /tab-orb -->
 
-  <!-- Warning banner (hidden by default) -->
-  <div id="lab-warning" class="lab-warning" style="display:none"></div>
 
-  <!-- Loading state -->
-  <div id="lab-loading" class="lab-loading" style="display:none">
-    <div class="lab-spinner"></div>
-    <span>Running backtest…</span>
-  </div>
-
-  <!-- Results (hidden until run) -->
-  <div id="lab-results" style="display:none">
-
-    <!-- Key metrics row -->
-    <div class="lab-metrics-grid">
-      <div class="lab-metric-card">
-        <div class="lmc-label">Total Trades</div>
-        <div class="lmc-value" id="lm-trades">—</div>
-        <div class="lmc-sub" id="lm-trades-sub"></div>
-      </div>
-      <div class="lab-metric-card">
-        <div class="lmc-label">Win Rate</div>
-        <div class="lmc-value" id="lm-wr">—</div>
-      </div>
-      <div class="lab-metric-card">
-        <div class="lmc-label">Profit Factor</div>
-        <div class="lmc-value" id="lm-pf">—</div>
-      </div>
-      <div class="lab-metric-card">
-        <div class="lmc-label">Sharpe Ratio</div>
-        <div class="lmc-value" id="lm-sharpe">—</div>
-      </div>
-      <div class="lab-metric-card">
-        <div class="lmc-label">Total Return</div>
-        <div class="lmc-value" id="lm-ret">—</div>
-      </div>
-      <div class="lab-metric-card">
-        <div class="lmc-label">Max Drawdown</div>
-        <div class="lmc-value" id="lm-dd">—</div>
-      </div>
+<!-- ══════════════════════════════════════ TAB: RSI2 -->
+<div id="tab-rsi2" class="tab-panel">
+  <div class="strat-page-header">
+    <div class="sph-info">
+      <div class="sph-eyebrow">STRATEGY · SPY · QQQ · IWM · DAILY</div>
+      <h1 class="sph-title">RSI(2) Daily</h1>
+      <p class="sph-desc">Larry Connors mean-reversion strategy. Buys extreme short-term oversold dips (RSI &lt; 10) in confirmed uptrends (price &gt; 200-day MA). Long-only. 1–5 day hold.</p>
     </div>
-
-    <!-- Equity curve chart -->
-    <div class="card lab-chart-card">
-      <div class="card-head">EQUITY CURVE</div>
-      <canvas id="lab-equity-chart" height="80"></canvas>
-    </div>
-
-    <!-- Monte Carlo results -->
-    <div id="lab-mc-section" class="card lab-mc-card" style="display:none">
-      <div class="card-head">MONTE CARLO — Bootstrap (2,000 paths)</div>
-      <div class="lab-mc-grid">
-        <div class="lmc2">
-          <div class="lmc2-label">Ruin Probability</div>
-          <div class="lmc2-value" id="mc-ruin">—</div>
-          <div class="lmc2-sub">DD &gt; 25% — must be &lt;5%</div>
-        </div>
-        <div class="lmc2">
-          <div class="lmc2-label">Prob of Profit</div>
-          <div class="lmc2-value" id="mc-profit">—</div>
-          <div class="lmc2-sub">Fraction of paths ending above start</div>
-        </div>
-        <div class="lmc2">
-          <div class="lmc2-label">Median Final Equity</div>
-          <div class="lmc2-value" id="mc-median">—</div>
-        </div>
-        <div class="lmc2">
-          <div class="lmc2-label">P05 Equity (worst 5%)</div>
-          <div class="lmc2-value" id="mc-p05">—</div>
-        </div>
-        <div class="lmc2">
-          <div class="lmc2-label">Median Max Drawdown</div>
-          <div class="lmc2-value" id="mc-med-dd">—</div>
-        </div>
-        <div class="lmc2">
-          <div class="lmc2-label">P95 Max DD (tail risk)</div>
-          <div class="lmc2-value" id="mc-p95-dd">—</div>
-          <div class="lmc2-sub">Must be &lt;40%</div>
-        </div>
-      </div>
-      <div id="mc-verdict" class="mc-verdict"></div>
-    </div>
-
-    <!-- Trade table -->
-    <div class="card lab-trades-card">
-      <div class="card-head">TRADE LOG <span id="lab-trade-count" class="card-head-sub"></span></div>
-      <div class="lab-table-wrap">
-        <table class="lab-table">
-          <thead>
-            <tr>
-              <th>Entry</th><th>Exit</th><th>Dir</th>
-              <th>Entry $</th><th>Exit $</th><th>P&amp;L</th><th>Result</th>
-            </tr>
-          </thead>
-          <tbody id="lab-trade-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-
-  </div><!-- /lab-results -->
-</div><!-- /tab-lab -->
-
-<!-- ══════════════════════════════════════ TAB: JOURNAL -->
-<div id="tab-journal" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Trade Journal</h1>
-    <p class="page-sub">Complete record of every trade — entry logic, confluence checks, and failure analysis. All timestamps UTC.</p>
-  </div>
-
-  <div class="journal-stats" id="journal-stats">
-    <div class="js-card"><div class="js-label">Total Trades</div><div class="js-val" id="jst-total">—</div></div>
-    <div class="js-card"><div class="js-label">Win Rate</div><div class="js-val" id="jst-wr">—</div></div>
-    <div class="js-card"><div class="js-label">Total P&amp;L</div><div class="js-val" id="jst-pnl">—</div></div>
-    <div class="js-card"><div class="js-label">Sweep Win Rate</div><div class="js-val" id="jst-sweep-wr">—</div></div>
-    <div class="js-card"><div class="js-label">Avg Win</div><div class="js-val" id="jst-avg-win">—</div></div>
-    <div class="js-card"><div class="js-label">Avg Loss</div><div class="js-val" id="jst-avg-loss">—</div></div>
-  </div>
-
-  <div id="journal-cards" class="journal-cards">
-    <div class="journal-empty">No trades recorded yet. Trades appear here after the scheduler runs.</div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════ TAB: STACK -->
-<div id="tab-stack" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Infrastructure Stack</h1>
-    <p class="page-sub">Every external dependency, API, and service the bot relies on — with status and monthly cost.</p>
-  </div>
-
-  <!-- Cost summary -->
-  <div class="stack-cost-bar">
-    <div class="scb-item">
-      <span class="scb-label">Monthly Fixed</span>
-      <span class="scb-val green">$6.00</span>
-    </div>
-    <div class="scb-sep">+</div>
-    <div class="scb-item">
-      <span class="scb-label">Variable (API usage)</span>
-      <span class="scb-val amber">~$0–5</span>
-    </div>
-    <div class="scb-sep">=</div>
-    <div class="scb-item">
-      <span class="scb-label">Total / mo</span>
-      <span class="scb-val">~$6–11</span>
-    </div>
-    <div class="scb-note">Excludes broker commissions (~$0.35/contract MES)</div>
-  </div>
-
-  <div class="stack-grid">
-
-    <!-- VPS -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-vps">VPS</div>
-        <div>
-          <div class="stack-title">DigitalOcean Droplet</div>
-          <div class="stack-subtitle">Production server · always-on</div>
-        </div>
-        <div class="stack-cost">$6<span class="sc-mo">/mo</span></div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Provider</span><span class="sr-val">DigitalOcean · NYC1</span></div>
-        <div class="sr"><span class="sr-lbl">Specs</span><span class="sr-val mono">1 vCPU · 1 GB RAM · 25 GB SSD</span></div>
-        <div class="sr"><span class="sr-lbl">OS</span><span class="sr-val">Ubuntu 24.04 LTS</span></div>
-        <div class="sr"><span class="sr-lbl">IP</span><span class="sr-val mono">137.184.48.18</span></div>
-        <div class="sr"><span class="sr-lbl">SSH key</span><span class="sr-val mono">~/.ssh/id_ed25519_tradez</span></div>
-        <div class="sr"><span class="sr-lbl">Dashboard port</span><span class="sr-val mono">:8001</span></div>
-        <div class="sr"><span class="sr-lbl">Services</span><span class="sr-val"><code>tradez-scheduler</code> + <code>tradez-dashboard</code> (systemd)</span></div>
-        <div class="sr"><span class="sr-lbl">Firewall</span><span class="sr-val">ufw · ports 22 + 8001 open</span></div>
-      </div>
-      <div class="stack-cmd-block">
-        <div class="scmd-label">SSH</div>
-        <code class="scmd-code">ssh -i ~/.ssh/id_ed25519_tradez root@137.184.48.18</code>
-      </div>
-      <div class="stack-cmd-block">
-        <div class="scmd-label">Deploy update</div>
-        <code class="scmd-code">cd /root/TRADEZ &amp;&amp; git pull origin feature/brt-mes-live-risk &amp;&amp; systemctl restart tradez-scheduler tradez-dashboard</code>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://cloud.digitalocean.com" target="_blank" rel="noopener">↗ DigitalOcean Dashboard</a>
-      </div>
-    </div>
-
-    <!-- Tradovate -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-broker">BRK</div>
-        <div>
-          <div class="stack-title">Tradovate</div>
-          <div class="stack-subtitle">Futures broker · MES execution</div>
-        </div>
-        <div class="stack-cost stack-cost-var">~$0.35<span class="sc-mo">/contract</span></div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Instrument</span><span class="sr-val">MES (Micro E-mini S&amp;P 500)</span></div>
-        <div class="sr"><span class="sr-lbl">Tick value</span><span class="sr-val mono">$1.25/tick · $5/point</span></div>
-        <div class="sr"><span class="sr-lbl">Margin (intraday)</span><span class="sr-val mono">~$40–50/contract</span></div>
-        <div class="sr"><span class="sr-lbl">Auth method</span><span class="sr-val">OAuth2 access token (REST)</span></div>
-        <div class="sr"><span class="sr-lbl">Base URL</span><span class="sr-val mono">demo.tradovateapi.com / live.tradovateapi.com</span></div>
-        <div class="sr"><span class="sr-lbl">Status</span><span id="stack-broker-status" class="sr-val amber">⚠ Credentials not set</span></div>
-        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">TRADOVATE_USERNAME, PASSWORD, APP_ID, CID, SECRET</span></div>
-      </div>
-      <div class="stack-tag-row">
-        <span class="stag stag-amber">PAPER MODE ACTIVE</span>
-        <span class="stag stag-blue">REST + Polling</span>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://trader.tradovate.com" target="_blank" rel="noopener">↗ Tradovate Trader</a>
-        <a class="stack-link-btn" href="https://app.tradovate.com" target="_blank" rel="noopener">↗ API Console</a>
-      </div>
-    </div>
-
-    <!-- Market Data -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-data">DATA</div>
-        <div>
-          <div class="stack-title">yfinance (Yahoo Finance)</div>
-          <div class="stack-subtitle">OHLCV bars · indicators · macro data</div>
-        </div>
-        <div class="stack-cost stack-cost-free">FREE</div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Used for</span><span class="sr-val">MES 15-min bars, VIX, DXY, 10Y yield, SPY (backtest)</span></div>
-        <div class="sr"><span class="sr-lbl">Lookback limit</span><span class="sr-val">60 days for intraday · unlimited for daily</span></div>
-        <div class="sr"><span class="sr-lbl">Rate limit</span><span class="sr-val">~2,000 req/hr (unofficial)</span></div>
-        <div class="sr"><span class="sr-lbl">Ticker map</span><span class="sr-val mono">MES → ES=F · MGC → GC=F · VIX → ^VIX · DXY → DX-Y.NYB</span></div>
-        <div class="sr"><span class="sr-lbl">Install</span><span class="sr-val mono">pip install yfinance</span></div>
-      </div>
-      <div class="stack-tag-row">
-        <span class="stag stag-green">No API key required</span>
-        <span class="stag stag-amber">60d intraday limit</span>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://finance.yahoo.com/quote/ES%3DF" target="_blank" rel="noopener">↗ ES=F Quote</a>
-        <a class="stack-link-btn" href="https://finance.yahoo.com/quote/%5EVIX" target="_blank" rel="noopener">↗ VIX Quote</a>
-      </div>
-    </div>
-
-    <!-- Telegram -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-tg">TG</div>
-        <div>
-          <div class="stack-title">Telegram Bot API</div>
-          <div class="stack-subtitle">Trade alerts · regime changes · errors</div>
-        </div>
-        <div class="stack-cost stack-cost-free">FREE</div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Bot name</span><span class="sr-val">Created via @BotFather</span></div>
-        <div class="sr"><span class="sr-lbl">Triggers</span><span class="sr-val">Entry signal, SL hit, TP hit, regime change, daily summary, errors</span></div>
-        <div class="sr"><span class="sr-lbl">Method</span><span class="sr-val mono">POST /bot{token}/sendMessage</span></div>
-        <div class="sr"><span class="sr-lbl">Status</span><span class="sr-val green">✓ Configured (token + chat ID set)</span></div>
-        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">TELEGRAM_TOKEN, TELEGRAM_CHAT_ID</span></div>
-      </div>
-      <div class="stack-tag-row">
-        <span class="stag stag-green">Active</span>
-        <span class="stag stag-blue">HTTP polling</span>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://t.me/BotFather" target="_blank" rel="noopener">↗ BotFather</a>
-        <a class="stack-link-btn" href="https://core.telegram.org/bots/api" target="_blank" rel="noopener">↗ Bot API Docs</a>
-      </div>
-    </div>
-
-    <!-- LLM / AI Advisory -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-llm">AI</div>
-        <div>
-          <div class="stack-title">LLM Advisory (OpenAI / Anthropic)</div>
-          <div class="stack-subtitle">Pre-market regime commentary</div>
-        </div>
-        <div class="stack-cost stack-cost-var">~$0–3<span class="sc-mo">/mo</span></div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Fires at</span><span class="sr-val">9:55 ET pre-market + each signal check</span></div>
-        <div class="sr"><span class="sr-lbl">Input</span><span class="sr-val">VIX, ADX, RSI, ATR, regime, VPOC migration, levels</span></div>
-        <div class="sr"><span class="sr-lbl">Output</span><span class="sr-val">Natural-language commentary shown in Live → AI Advisory panel</span></div>
-        <div class="sr"><span class="sr-lbl">Model</span><span class="sr-val mono">gpt-4o-mini or claude-haiku (configurable)</span></div>
-        <div class="sr"><span class="sr-lbl">Required .env vars</span><span class="sr-val mono">OPENAI_API_KEY or ANTHROPIC_API_KEY</span></div>
-        <div class="sr"><span class="sr-lbl">Fallback</span><span class="sr-val">Advisory silently disabled if no key set</span></div>
-      </div>
-      <div class="stack-tag-row">
-        <span class="stag stag-amber">Optional</span>
-        <span class="stag stag-blue">~5–15 calls/day</span>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://console.anthropic.com" target="_blank" rel="noopener">↗ Anthropic Console</a>
-        <a class="stack-link-btn" href="https://platform.openai.com" target="_blank" rel="noopener">↗ OpenAI Platform</a>
-        <a class="stack-link-btn" href="https://console.x.ai" target="_blank" rel="noopener">↗ xAI Console</a>
-      </div>
-    </div>
-
-    <!-- GitHub -->
-    <div class="card stack-card">
-      <div class="stack-card-head">
-        <div class="stack-icon si-gh">GH</div>
-        <div>
-          <div class="stack-title">GitHub</div>
-          <div class="stack-subtitle">Source control · VPS deploy pipeline</div>
-        </div>
-        <div class="stack-cost stack-cost-free">FREE</div>
-      </div>
-      <div class="stack-rows">
-        <div class="sr"><span class="sr-lbl">Repo</span><span class="sr-val mono">github.com/redypp/TRADEZ</span></div>
-        <div class="sr"><span class="sr-lbl">Active branch</span><span class="sr-val mono">feature/brt-mes-live-risk</span></div>
-        <div class="sr"><span class="sr-lbl">Deploy flow</span><span class="sr-val">Push from Mac → git pull on VPS → systemctl restart</span></div>
-        <div class="sr"><span class="sr-lbl">VPS auth</span><span class="sr-val">SSH key (ed25519) added to GitHub deploy keys</span></div>
-      </div>
-      <div class="stack-tag-row">
-        <span class="stag stag-green">Active</span>
-      </div>
-      <div class="stack-link-row">
-        <a class="stack-link-btn" href="https://github.com/redypp/TRADEZ" target="_blank" rel="noopener">↗ GitHub Repo</a>
-        <a class="stack-link-btn" href="https://github.com/redypp/TRADEZ/tree/feature/brt-mes-live-risk" target="_blank" rel="noopener">↗ Active Branch</a>
-      </div>
-    </div>
-
-  </div><!-- /stack-grid -->
-
-  <!-- Risk config snapshot — dynamically populated from /api/settings -->
-  <div class="card stack-risk-card">
-    <div class="card-head">RISK CONFIGURATION <span class="card-head-sub" id="risk-config-source">(from .env)</span></div>
-    <div class="stack-risk-grid">
-      <div class="srg-item">
-        <div class="srg-label">Risk per trade</div>
-        <div class="srg-val" id="srg-risk-per-trade">—</div>
-        <div class="srg-key mono" id="srg-risk-per-trade-key">RISK_PER_TRADE</div>
-      </div>
-      <div class="srg-item">
-        <div class="srg-label">Max daily drawdown</div>
-        <div class="srg-val" id="srg-max-drawdown">—</div>
-        <div class="srg-key mono" id="srg-max-drawdown-key">MAX_DAILY_DRAWDOWN</div>
-      </div>
-      <div class="srg-item">
-        <div class="srg-label">Portfolio heat max</div>
-        <div class="srg-val" id="srg-portfolio-heat">—</div>
-        <div class="srg-key mono">PORTFOLIO_HEAT_MAX</div>
-      </div>
-      <div class="srg-item">
-        <div class="srg-label">BRT R:R target</div>
-        <div class="srg-val" id="srg-tp-rr">—</div>
-        <div class="srg-key mono">BRT_TP_RR</div>
-      </div>
-      <div class="srg-item">
-        <div class="srg-label">Session window</div>
-        <div class="srg-val" id="srg-session">—</div>
-        <div class="srg-key mono">Mon–Fri · hourly :02</div>
-      </div>
-      <div class="srg-item">
-        <div class="srg-label">Lunch blackout</div>
-        <div class="srg-val" id="srg-lunch">—</div>
-        <div class="srg-key mono">BRT_LUNCH_START/END_HOUR</div>
+    <div class="sph-status-group">
+      <div class="sph-stat-chip" id="rsi2-enabled-chip">—</div>
+      <div class="sph-sig" id="rsi2-live-sig">
+        <div class="sph-sig-label">LIVE SIGNAL</div>
+        <div class="sph-sig-val" id="rsi2-sig-val">—</div>
       </div>
     </div>
   </div>
 
-  <!-- Setup Checklist — populated dynamically from /api/broker/status -->
-  <div class="card stack-checklist-card">
-    <div class="card-head">SETUP CHECKLIST</div>
-    <div id="setup-checklist" class="setup-checklist">
-      <div class="sc-loading">Checking configuration…</div>
+  <div class="strat-page-body">
+    <div class="spb-main">
+      <div class="card">
+        <div class="card-head">LIVE · RSI SCREENER</div>
+        <div class="rsi2-screener" id="rsi2-screener">
+          <!-- rendered by JS -->
+          <div class="rsi2-loading">Fetching RSI data…</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">PARAMETERS</div>
+        <div class="param-list">
+          <div class="pm-row"><span class="pm-lbl">Markets</span><span class="pm-val">SPY · QQQ · IWM</span></div>
+          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">Daily (EOD signals)</span></div>
+          <div class="pm-row"><span class="pm-lbl">RSI period</span><span class="pm-val">2 bars</span></div>
+          <div class="pm-row"><span class="pm-lbl">Entry signal</span><span class="pm-val">RSI(2) &lt; 10</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">Price &gt; 200-day SMA (no longs in downtrend)</span></div>
+          <div class="pm-row"><span class="pm-lbl">Direction</span><span class="pm-val">Long only</span></div>
+          <div class="pm-row"><span class="pm-lbl">Exit</span><span class="pm-val">RSI(2) &gt; 65 or 5-day max hold</span></div>
+          <div class="pm-row"><span class="pm-lbl">Broker</span><span class="pm-val">Alpaca (stocks API)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spb-side">
+      <div class="card">
+        <div class="card-head">HOW IT WORKS</div>
+        <div class="strat-howto">
+          <div class="sht-step"><span class="sht-num">1</span><span>After market close, bot pulls daily data for SPY, QQQ, IWM.</span></div>
+          <div class="sht-step"><span class="sht-num">2</span><span>Trend filter: is price &gt; 200-day SMA? If not, all signals blocked — only trade uptrends.</span></div>
+          <div class="sht-step"><span class="sht-num">3</span><span>RSI(2) calculated. If &lt; 10: extreme oversold in an uptrend — high probability bounce.</span></div>
+          <div class="sht-step"><span class="sht-num">4</span><span>Entry at next-day open. Size based on risk percentage of equity.</span></div>
+          <div class="sht-step"><span class="sht-num">5</span><span>Exit when RSI(2) &gt; 65 (mean restored) or after 5 trading days, whichever first.</span></div>
+          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> RSI(2) signals are rare (few per month per ETF) but high-accuracy when trend filter passes. Low drawdown, high win rate in backtests.</span></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-head">ENTRY RULES</div>
+        <div class="strat-rules">
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price &gt; 200-day SMA (confirmed uptrend)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>RSI(2) &lt; 10 (extreme oversold)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>No existing position in the symbol</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Price &lt; 200-day SMA — no longs in downtrends</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>RSI(2) &gt; 10 — wait for deeper pullback</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Already holding that symbol — no pyramid</span></div>
+        </div>
+      </div>
     </div>
   </div>
+</div><!-- /tab-rsi2 -->
 
-</div><!-- /tab-stack -->
 
-<!-- ══════════════════════════════════════ TAB: PINE -->
-<div id="tab-pine" class="tab-panel">
-  <div class="page-header">
-    <h1 class="page-title">Pine Script — BRT Strategy</h1>
-    <p class="page-sub">Paste into TradingView Pine Editor. Use MES1! or ES1! on the 15-min chart. Mirrors the live Python bot logic exactly.</p>
-  </div>
 
-  <div class="pine-how-to card">
-    <div class="card-head">SETUP INSTRUCTIONS</div>
-    <div class="pine-steps">
-      <div class="ps-step"><span class="ps-num">1</span><span>Open TradingView → chart MES1! (or ES1!) → 15-min timeframe</span></div>
-      <div class="ps-step"><span class="ps-num">2</span><span>Click <strong>Pine Editor</strong> at the bottom → New Script → paste the code below</span></div>
-      <div class="ps-step"><span class="ps-num">3</span><span>Click <strong>Add to chart</strong> → open Strategy Tester → set date range to 1–2 years</span></div>
-      <div class="ps-step"><span class="ps-num">4</span><span>Tune parameters in the Settings panel (gear icon) — changes sync back to Python via <code>config/settings.py</code></span></div>
-    </div>
-  </div>
-
-  <div class="card pine-card">
-    <div class="card-head">
-      PINE SCRIPT v6
-      <span class="pine-version-badge">v6</span>
-      <button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button>
-    </div>
-    <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
-  </div>
-</div><!-- /tab-pine -->
 
 <script src="/static/app.js?v=2"></script>
 
