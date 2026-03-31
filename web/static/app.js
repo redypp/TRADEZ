@@ -71,6 +71,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ── Strategy Selector → tab navigation ────────────────────────────────────────
+// The nav has a single "Strategy" tab button. Switching strategy updates its
+// data-tab so activateTab() shows the right panel (tab-brt or tab-swing).
 function switchStrategyTab(tabId, label) {
   const sel = $('strategy-selector');
   if (sel) sel.classList.remove('open');
@@ -79,6 +81,9 @@ function switchStrategyTab(tabId, label) {
   document.querySelectorAll('.sm-item').forEach(i => i.classList.remove('active'));
   const item = $(`sm-${tabId}`);
   if (item) item.classList.add('active');
+  // Update the single Strategy nav button to point at the chosen panel
+  const stratBtn = $('strategy-tab-btn');
+  if (stratBtn) stratBtn.dataset.tab = tabId;
   activateTab(tabId);
 }
 
