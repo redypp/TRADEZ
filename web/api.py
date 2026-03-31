@@ -212,10 +212,9 @@ def _grok_breaking_news() -> Optional[dict]:
             "High priority: FOMC surprise, major M&A, geopolitical shock, flash crash, CPI/NFP miss, "
             "large earnings miss, regulatory ruling.\n"
             "If NOTHING notable in last 5 min respond exactly: "
-            '{\"impact\":\"NONE\",\"headline\":\"\",\"summary\":\"\",\"direction\":\"NEUTRAL\"}\n'
-            "If something broke: "
-            '{\"impact\":\"HIGH|MEDIUM\",\"headline\":\"<70 chars>\",\"summary\":\"<2 sentences>\","
-            '"direction\":\"BULLISH|BEARISH|NEUTRAL\"}'
+            '{"impact":"NONE","headline":"","summary":"","direction":"NEUTRAL"}\n'
+            "If something broke respond: "
+            '{"impact":"HIGH or MEDIUM","headline":"under 70 chars","summary":"2 sentences","direction":"BULLISH or BEARISH or NEUTRAL"}'
         )
         client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
         resp = client.chat.completions.create(
@@ -967,6 +966,9 @@ def api_screener():
             risk_flags.append(hw)
 
     # ── 9. Build and cache result ─────────────────────────────────────────────
+    # Merge screener LLM cache (from background worker) with scheduler advisory
+    _merged_adv = _llm_spec_cache if _llm_spec_cache else advisory
+
     result = {
         "available":  True,
         "as_of":      datetime.now(timezone.utc).isoformat(),
@@ -979,8 +981,6 @@ def api_screener():
             "timestamp":  advisory.get("timestamp") or datetime.now(timezone.utc).isoformat(),
             "watch_for":  advisory.get("watch_for", ""),
         },
-        # Merge scheduler advisory + screener LLM cache (prefer whichever is newer)
-        _merged_adv = _llm_spec_cache if _llm_spec_cache else advisory
         "specialists": {
             "grok": {
                 "sentiment": _merged_adv.get("sentiment", advisory.get("grok_sentiment", "")),
