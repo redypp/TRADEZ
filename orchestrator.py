@@ -574,6 +574,18 @@ def _execute_signal(
         except Exception:
             adv = {}
 
+        # Fallback: if scheduler advisory is empty, try screener advisory written
+        # by the dashboard's background LLM worker (cross-process via bot_state).
+        if not adv:
+            try:
+                import json as _json
+                from data.trade_log import get_bot_state
+                raw = (get_bot_state() or {}).get("screener_advisory")
+                if raw:
+                    adv = _json.loads(raw)
+            except Exception:
+                pass
+
         if adv:
             quality        = adv.get("signal_quality", "N/A")
             macro_supports = adv.get("macro_supports")

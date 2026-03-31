@@ -118,6 +118,14 @@ def _run_screener_llm_worker():
                     f"[ScreenerLLM] Done — sentiment={result.get('sentiment')} "
                     f"quality={result.get('signal_quality')}"
                 )
+                # Bridge to scheduler process: write to bot_state so orchestrator
+                # can use it as an advisory quality gate fallback (cross-process).
+                try:
+                    import json as _json
+                    from data.trade_log import update_bot_state
+                    update_bot_state({"screener_advisory": _json.dumps(result)})
+                except Exception as _e:
+                    logger.debug(f"[ScreenerLLM] bot_state bridge skipped: {_e}")
 
         except Exception as e:
             logger.error(f"[ScreenerLLM] Worker failed: {e}")

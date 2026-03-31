@@ -118,8 +118,9 @@ def init_db() -> None:
             ("fvg_bull_high", "REAL"),
             ("fvg_bear_low",  "REAL"),
             ("fvg_bear_high", "REAL"),
-            ("vpoc_migration", "TEXT"),   # "RISING" / "FALLING" / "NEUTRAL"
-            ("llm_advisory",   "TEXT"),   # JSON blob from AI advisory engine
+            ("vpoc_migration",     "TEXT"),   # "RISING" / "FALLING" / "NEUTRAL"
+            ("llm_advisory",       "TEXT"),   # JSON blob from AI advisory engine
+            ("screener_advisory",  "TEXT"),   # JSON blob from dashboard screener LLM worker
         ]:
             if col not in state_cols:
                 conn.execute(f"ALTER TABLE bot_state ADD COLUMN {col} {typedef}")
