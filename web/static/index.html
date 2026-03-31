@@ -254,6 +254,7 @@
 
   <!-- Bias Hero ────────────────────────────────────────────── -->
   <div class="screener-hero" id="screener-hero">
+    <button class="screener-refresh-btn" id="screener-refresh-btn" onclick="screenerRefresh()" title="Force-fetch fresh data">⟳ Refresh</button>
     <div class="sh-top">
       <div class="sh-eyebrow">AI MARKET SCREENER</div>
       <div class="sh-bias-wrap">
@@ -272,8 +273,10 @@
         <span id="sh-source" class="sh-meta-chip">—</span>
         <span class="sh-sep">·</span>
         <span id="sh-ts" class="sh-meta-ts">—</span>
+        <span class="sh-sep" id="sh-watchfor-sep" style="display:none">·</span>
         <span id="sh-watchfor" class="sh-meta-watchfor"></span>
       </div>
+      <div class="sh-asof" id="sh-asof"></div>
     </div>
   </div>
 

@@ -1168,11 +1168,23 @@ code {
 
 /* ── Hero banner ────────────────────────────────────────────── */
 .screener-hero {
+  position: relative;
   padding: 28px 24px 20px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(59,130,246,0.04) 0%, transparent 100%);
 }
-.sh-top { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.screener-refresh-btn {
+  position: absolute; top: 16px; right: 24px;
+  padding: 4px 12px; border-radius: 6px;
+  border: 1px solid var(--border2); background: var(--s2);
+  color: var(--text2); font-size: 11px; cursor: pointer;
+  font-family: var(--font); letter-spacing: 0.5px;
+  transition: background 0.15s, color 0.15s;
+}
+.screener-refresh-btn:hover    { background: var(--s3); color: var(--text); }
+.screener-refresh-btn:disabled { opacity: 0.5; cursor: default; }
+.sh-asof { font-size: 10px; color: var(--text3); margin-top: -4px; }
+.sh-top { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; position: relative; width: 100%; }
 .sh-eyebrow { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--text3); text-transform: uppercase; }
 
 .sh-bias-wrap { display: flex; align-items: center; gap: 18px; }

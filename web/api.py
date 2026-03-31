@@ -392,170 +392,399 @@ def api_lab_run(req: LabRunRequest):
     }
 
 
+# ── Screener live-data helpers ────────────────────────────────────────────────
+
+_screener_cache:    dict  = {}
+_screener_cache_ts: float = 0.0
+_SCREENER_TTL = 45  # seconds between yfinance re-fetches
+
+
+def _is_session_open() -> bool:
+    from datetime import datetime
+    import pytz
+    et = datetime.now(pytz.timezone("America/New_York"))
+    return et.weekday() < 5 and 9 <= et.hour < 16
+
+
+def _fetch_mes_snapshot() -> dict:
+    """Fetch 15-min ES=F data and compute key indicators. Returns {} on failure."""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        import ta
+
+        ticker = yf.Ticker("ES=F")
+        df = ticker.history(period="5d", interval="15m", auto_adjust=True)
+        if df.empty or len(df) < 30:
+            return {}
+        df.columns = [c.lower() for c in df.columns]
+        df = df[["open", "high", "low", "close", "volume"]].dropna()
+
+        # Indicators
+        df["ema20"]  = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+        df["rsi"]    = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        adx_ind      = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14)
+        df["adx"]    = adx_ind.adx()
+        df["adx_pos"] = adx_ind.adx_pos()
+        df["adx_neg"] = adx_ind.adx_neg()
+        atr_ind      = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], window=14)
+        df["atr"]    = atr_ind.average_true_range()
+
+        # Intraday VWAP (today's bars only)
+        import pytz
+        et   = pytz.timezone("America/New_York")
+        today = df.index.tz_convert(et).normalize().max()
+        today_mask = df.index.tz_convert(et).normalize() == today
+        today_df   = df[today_mask]
+        if not today_df.empty:
+            tp   = (today_df["high"] + today_df["low"] + today_df["close"]) / 3
+            vwap = (tp * today_df["volume"]).cumsum() / today_df["volume"].cumsum()
+            df.loc[today_df.index, "vwap"] = vwap
+        else:
+            df["vwap"] = None
+
+        # PDH / PDL
+        prev_mask = df.index.tz_convert(et).normalize() == (today - pd.Timedelta(days=1))
+        prev_df   = df[prev_mask] if prev_mask.any() else pd.DataFrame()
+        pdh = float(prev_df["high"].max())  if not prev_df.empty else None
+        pdl = float(prev_df["low"].min())   if not prev_df.empty else None
+
+        last = df.iloc[-1]
+        return {
+            "close":    round(float(last["close"]),  2),
+            "ema20":    round(float(last["ema20"]),  2) if not pd.isna(last["ema20"])  else None,
+            "vwap":     round(float(last["vwap"]),   2) if "vwap" in df.columns and not pd.isna(last["vwap"]) else None,
+            "rsi":      round(float(last["rsi"]),    1) if not pd.isna(last["rsi"])    else None,
+            "adx":      round(float(last["adx"]),    1) if not pd.isna(last["adx"])    else None,
+            "adx_pos":  round(float(last["adx_pos"]),1) if not pd.isna(last["adx_pos"]) else None,
+            "adx_neg":  round(float(last["adx_neg"]),1) if not pd.isna(last["adx_neg"]) else None,
+            "atr":      round(float(last["atr"]),    2) if not pd.isna(last["atr"])    else None,
+            "pdh":      round(pdh, 2) if pdh else None,
+            "pdl":      round(pdl, 2) if pdl else None,
+            "bars":     len(df),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _mechanical_bias(mkt: dict, fundamentals: dict) -> tuple[str, float, str]:
+    """
+    Derive bias purely from technical indicators.
+    Returns (direction, confidence, reason).
+    """
+    if not mkt or "close" not in mkt:
+        return "NEUTRAL", 0.50, "Insufficient market data"
+
+    close = mkt.get("close", 0)
+    ema20 = mkt.get("ema20")
+    vwap  = mkt.get("vwap")
+    rsi   = mkt.get("rsi")
+    adx   = mkt.get("adx")
+    adx_p = mkt.get("adx_pos")
+    adx_n = mkt.get("adx_neg")
+    regime = fundamentals.get("regime", "RISK_ON")
+
+    if regime == "NO_TRADE":
+        return "NEUTRAL", 0.30, "VIX extreme — no-trade regime active"
+
+    bull_pts = 0
+    bear_pts = 0
+    reasons  = []
+
+    if ema20:
+        if close > ema20:
+            bull_pts += 1; reasons.append(f"price above EMA20 ({ema20:.0f})")
+        else:
+            bear_pts += 1; reasons.append(f"price below EMA20 ({ema20:.0f})")
+
+    if vwap:
+        if close > vwap:
+            bull_pts += 1; reasons.append(f"above VWAP ({vwap:.0f})")
+        else:
+            bear_pts += 1; reasons.append(f"below VWAP ({vwap:.0f})")
+
+    if rsi is not None:
+        if rsi > 55:
+            bull_pts += 1; reasons.append(f"RSI bullish ({rsi:.0f})")
+        elif rsi < 45:
+            bear_pts += 1; reasons.append(f"RSI bearish ({rsi:.0f})")
+
+    if adx_p and adx_n:
+        if adx_p > adx_n:
+            bull_pts += 1; reasons.append("DI+ > DI−")
+        else:
+            bear_pts += 1; reasons.append("DI− > DI+")
+
+    # Macro modifier
+    yield_trend = fundamentals.get("yield_trend", "STABLE")
+    dxy_trend   = fundamentals.get("dxy_trend",   "STABLE")
+    if yield_trend == "FALLING" or dxy_trend == "WEAKENING":
+        bull_pts += 1; reasons.append("macro tailwind")
+    elif yield_trend == "RISING" or dxy_trend == "STRENGTHENING":
+        bear_pts += 1; reasons.append("macro headwind")
+
+    total = bull_pts + bear_pts
+    if total == 0:
+        return "NEUTRAL", 0.50, "No clear signal"
+
+    if bull_pts > bear_pts:
+        conf = 0.45 + 0.10 * (bull_pts - bear_pts)
+        return "BULLISH", min(round(conf, 2), 0.85), f"Technical confluence: {', '.join(reasons[:3])}"
+    elif bear_pts > bull_pts:
+        conf = 0.45 + 0.10 * (bear_pts - bull_pts)
+        return "BEARISH", min(round(conf, 2), 0.85), f"Technical confluence: {', '.join(reasons[:3])}"
+    else:
+        return "NEUTRAL", 0.50, f"Mixed signals: {', '.join(reasons[:3])}"
+
+
 @app.get("/api/screener")
 def api_screener():
     """
-    AI Screener — aggregates LLM advisory, selector, regime, and live signals
-    into a single payload for the Screener tab.
+    AI Screener — always fetches live market data directly.
+    Works whether or not the scheduler is running.
+    Cached for 45s to avoid hammering yfinance.
     """
+    import time
     import json as _json
 
-    state = get_bot_state()
-    if not state:
-        return {"available": False, "reason": "No bot state — run the scheduler first."}
+    global _screener_cache, _screener_cache_ts
+    now = time.time()
 
-    # ── Advisory blob ──────────────────────────────────────────────────────────
+    # Return cached result if fresh
+    if _screener_cache and (now - _screener_cache_ts) < _SCREENER_TTL:
+        return _screener_cache
+
+    # ── 1. Live fundamentals (VIX, 10Y, DXY, SPY vol) ────────────────────────
+    try:
+        from data.fundamentals import get_live_fundamentals
+        fundamentals = get_live_fundamentals()
+    except Exception as e:
+        fundamentals = {"vix": None, "regime": "UNKNOWN", "yield_10y": None,
+                        "dxy": None, "headwinds": [], "tailwinds": [], "error": str(e)}
+
+    # ── 2. Live MES 15-min price + indicators ────────────────────────────────
+    mkt = _fetch_mes_snapshot()
+
+    # ── 3. Advisory from bot_state (optional — scheduler may not be running) ──
+    state    = get_bot_state()
     advisory: dict = {}
-    raw = state.get("llm_advisory")
-    if raw:
-        try:
-            advisory = _json.loads(raw)
-        except Exception:
-            pass
+    if state:
+        raw = state.get("llm_advisory")
+        if raw:
+            try:
+                advisory = _json.loads(raw)
+            except Exception:
+                pass
 
-    # ── LLM selector + gate status (only available when scheduler is running) ──
-    selector: dict = {}
+    # ── 4. LLM selector cache ────────────────────────────────────────────────
+    selector:    dict = {}
     gate_status: dict = {}
     try:
         from monitor.llm_gate import get_llm_selection, get_status
-        selector   = get_llm_selection()
+        selector    = get_llm_selection()
         gate_status = get_status()
     except Exception:
         pass
 
-    # ── Regime / macro ────────────────────────────────────────────────────────
-    vix       = state.get("vix")
-    regime    = state.get("regime", "UNKNOWN")
-    yield_10y = state.get("yield_10y")
-    dxy       = state.get("dxy")
+    # ── 5. Overall bias — LLM if available, else mechanical ──────────────────
+    mech_dir, mech_conf, mech_reason = _mechanical_bias(mkt, fundamentals)
 
-    # ── Overall bias (prefer selector confidence, fall back to advisory quality) ──
-    bias_direction = (
-        advisory.get("sentiment")
-        or selector.get("bias")
-        or "NEUTRAL"
-    ).upper()
+    adv_quality = advisory.get("signal_quality", "")
+    if advisory.get("sentiment") and adv_quality in ("HIGH", "MEDIUM"):
+        bias_dir  = advisory["sentiment"].upper()
+        bias_conf = {"HIGH": 0.82, "MEDIUM": 0.64}.get(adv_quality, 0.60)
+        bias_src  = "LLM ADVISORY"
+        bias_hl   = advisory.get("headline", mech_reason)
+        bias_brief = advisory.get("brief", "")
+    elif selector.get("bias") and (selector.get("confidence") or 0) >= 0.60:
+        bias_dir  = selector["bias"].upper()
+        bias_conf = selector["confidence"]
+        bias_src  = "LLM SELECTOR"
+        r = selector.get("reasoning", "")
+        bias_hl   = r[:100] if r else mech_reason
+        bias_brief = ""
+    else:
+        bias_dir  = mech_dir
+        bias_conf = mech_conf
+        bias_src  = "TECHNICAL"
+        bias_hl   = mech_reason
+        bias_brief = ""
 
-    _quality_conf = {"HIGH": 0.82, "MEDIUM": 0.62, "LOW": 0.42, "N/A": 0.50}
-    bias_confidence = (
-        selector.get("confidence")
-        or _quality_conf.get(advisory.get("signal_quality", "N/A"), 0.50)
+    # ── 6. Opportunities ──────────────────────────────────────────────────────
+    regime       = fundamentals.get("regime", "UNKNOWN")
+    regime_ok    = regime not in ("NO_TRADE", "RISK_OFF")
+    close        = mkt.get("close")
+    ema20        = mkt.get("ema20")
+    vwap         = mkt.get("vwap")
+    adx          = mkt.get("adx")
+    rsi          = mkt.get("rsi")
+    state_brt    = (state or {}).get("brt_state", "NEUTRAL")
+    watch_level  = (state or {}).get("watch_level")
+    watch_ltype  = (state or {}).get("watch_ltype")
+
+    # BRT opportunity
+    brt_dir  = "LONG" if state_brt == "WATCHING_LONG" else "SHORT" if state_brt == "WATCHING_SHORT" else bias_dir
+    brt_qual = advisory.get("signal_quality", "N/A") if advisory else (
+        "HIGH" if adx and adx > 25 and regime_ok else
+        "MEDIUM" if regime_ok else "LOW"
     )
+    if watch_level and watch_ltype:
+        brt_note = f"{'Broke above' if brt_dir == 'LONG' else 'Broke below'} {watch_ltype} — watching retest @ {watch_level:.2f}"
+    elif close and ema20:
+        gap = close - ema20
+        brt_note = (f"Price {'above' if gap > 0 else 'below'} EMA20 by {abs(gap):.1f}pts — "
+                    f"watching for break of key level")
+    else:
+        brt_note = advisory.get("watch_for") or "Monitoring for institutional breakout"
 
-    # ── Opportunity from current BRT signal ───────────────────────────────────
-    brt_state   = state.get("brt_state", "NEUTRAL")
-    watch_level = state.get("watch_level")
-    watch_ltype = state.get("watch_ltype")
-    sig_quality = advisory.get("signal_quality", "N/A")
-
-    opp_dir = "NEUTRAL"
-    if brt_state == "WATCHING_LONG":
-        opp_dir = "LONG"
-    elif brt_state == "WATCHING_SHORT":
-        opp_dir = "SHORT"
-
-    def _setup_note() -> str:
-        if brt_state == "WATCHING_LONG" and watch_level:
-            return f"Broke above {watch_ltype or 'level'} — watching retest at {watch_level:.2f}"
-        if brt_state == "WATCHING_SHORT" and watch_level:
-            return f"Broke below {watch_ltype or 'level'} — watching retest at {watch_level:.2f}"
-        return advisory.get("watch_for") or "Monitoring for institutional breakout"
+    # VWAP MR opportunity
+    vwap_dir  = "NEUTRAL"
+    vwap_note = "ADX too high for mean reversion" if (adx and adx > 20) else "Ranging market — VWAP reversion eligible"
+    vwap_qual = "MEDIUM" if (adx and adx < 18 and regime_ok) else "LOW"
+    if vwap and close:
+        dev = close - vwap
+        if abs(dev) > 4:
+            vwap_dir  = "SHORT" if dev > 0 else "LONG"
+            vwap_note = f"Price {'extended above' if dev > 0 else 'extended below'} VWAP by {abs(dev):.1f}pts — reversion candidate"
+            vwap_qual = "MEDIUM" if regime_ok else "LOW"
 
     opportunities = [
         {
-            "strategy":   "BRT",
-            "symbol":     "MES",
-            "timeframe":  "15min",
-            "direction":  opp_dir,
-            "quality":    sig_quality,
+            "strategy":    "BRT",
+            "symbol":      "MES",
+            "timeframe":   "15min",
+            "direction":   brt_dir,
+            "quality":     brt_qual,
             "watch_level": watch_level,
-            "level_type": watch_ltype,
-            "regime":     regime,
-            "regime_ok":  regime not in ("NO_TRADE", "HIGH_VOL"),
-            "risk_flags": advisory.get("risk_flags", []),
-            "setup_note": _setup_note(),
-        }
+            "level_type":  watch_ltype,
+            "regime":      regime,
+            "regime_ok":   regime_ok,
+            "risk_flags":  advisory.get("risk_flags", []),
+            "setup_note":  brt_note,
+        },
+        {
+            "strategy":    "VWAP MR",
+            "symbol":      "MES",
+            "timeframe":   "5min",
+            "direction":   vwap_dir,
+            "quality":     vwap_qual,
+            "watch_level": vwap,
+            "level_type":  "VWAP",
+            "regime":      regime,
+            "regime_ok":   regime_ok and (adx is None or adx < 20),
+            "risk_flags":  [],
+            "setup_note":  vwap_note,
+        },
     ]
 
-    # ── Trade watch list ──────────────────────────────────────────────────────
+    # ── 7. Trade watch ────────────────────────────────────────────────────────
     trade_watch = []
-    if opp_dir in ("LONG", "SHORT") and watch_level:
+    if watch_level and watch_ltype and state_brt in ("WATCHING_LONG", "WATCHING_SHORT"):
         trade_watch.append({
-            "priority":  1,
-            "symbol":    "MES",
-            "strategy":  "BRT",
-            "direction": opp_dir,
-            "trigger":   f"Retest of {watch_ltype or 'level'} @ {watch_level:.2f}",
-            "confidence": sig_quality,
+            "priority":   1,
+            "symbol":     "MES",
+            "strategy":   "BRT",
+            "direction":  brt_dir,
+            "trigger":    f"Retest of {watch_ltype} @ {watch_level:.2f}",
+            "confidence": advisory.get("signal_quality", "N/A"),
+        })
+    elif close and ema20:
+        gap = close - ema20
+        lvl = ema20 if abs(gap) < 8 else vwap
+        lvl_name = "EMA20" if abs(gap) < 8 else "VWAP"
+        trade_watch.append({
+            "priority":   1,
+            "symbol":     "MES",
+            "strategy":   "BRT",
+            "direction":  bias_dir,
+            "trigger":    f"Watch for break + retest of {lvl_name} ({lvl:.2f})" if lvl else "Awaiting key level break",
+            "confidence": brt_qual,
         })
 
-    sel_strategy = selector.get("strategy", "")
-    if sel_strategy and sel_strategy != "FLAT":
+    if vwap_dir != "NEUTRAL" and vwap:
+        trade_watch.append({
+            "priority":   2,
+            "symbol":     "MES",
+            "strategy":   "VWAP MR",
+            "direction":  vwap_dir,
+            "trigger":    f"Revert to VWAP ({vwap:.2f}) from {'above' if vwap_dir == 'SHORT' else 'below'}",
+            "confidence": vwap_qual,
+        })
+
+    if selector.get("strategy") and selector.get("strategy") != "FLAT":
         conf_raw = selector.get("confidence")
         trade_watch.append({
-            "priority":  2,
-            "symbol":    "MES",
-            "strategy":  sel_strategy,
-            "direction": selector.get("bias", "NEUTRAL"),
-            "trigger":   selector.get("reasoning", "LLM selector recommendation")[:80]
-                         if selector.get("reasoning") else "LLM selector recommendation",
+            "priority":   3,
+            "symbol":     "MES",
+            "strategy":   selector["strategy"],
+            "direction":  selector.get("bias", "NEUTRAL"),
+            "trigger":    "LLM selector recommendation",
             "confidence": f"{conf_raw:.0%}" if conf_raw else "—",
         })
 
-    if not trade_watch:
-        trade_watch.append({
-            "priority":  1,
-            "symbol":    "MES",
-            "strategy":  "BRT",
-            "direction": "NEUTRAL",
-            "trigger":   "No active setup — waiting for price action",
-            "confidence": "—",
-        })
+    # ── 8. Risk flags ─────────────────────────────────────────────────────────
+    risk_flags = list(advisory.get("risk_flags", []))
+    for hw in fundamentals.get("headwinds", []):
+        if hw not in risk_flags:
+            risk_flags.append(hw)
 
-    return {
-        "available": True,
+    # ── 9. Build and cache result ─────────────────────────────────────────────
+    result = {
+        "available":  True,
+        "as_of":      datetime.now(timezone.utc).isoformat(),
         "bias": {
-            "direction":  bias_direction,
-            "confidence": round(bias_confidence, 3),
-            "headline":   advisory.get("headline", "—"),
-            "brief":      advisory.get("brief", "—"),
-            "source":     "LLM" if advisory else "REGIME",
-            "timestamp":  advisory.get("timestamp") or state.get("updated_at", ""),
+            "direction":  bias_dir,
+            "confidence": round(bias_conf, 3),
+            "headline":   bias_hl,
+            "brief":      bias_brief,
+            "source":     bias_src,
+            "timestamp":  advisory.get("timestamp") or datetime.now(timezone.utc).isoformat(),
             "watch_for":  advisory.get("watch_for", ""),
         },
         "specialists": {
-            "grok": {
-                "sentiment": advisory.get("grok_sentiment", "—"),
-                "summary":   advisory.get("grok_summary", ""),
-            },
-            "gpt4": {
-                "summary": advisory.get("gpt4_summary", ""),
-            },
-            "claude": {
-                "headline": advisory.get("headline", ""),
-                "brief":    advisory.get("brief", ""),
-            },
+            "grok":   {"sentiment": advisory.get("grok_sentiment", ""), "summary": advisory.get("grok_summary", "")},
+            "gpt4":   {"summary": advisory.get("gpt4_summary", "")},
+            "claude": {"headline": advisory.get("headline", ""), "brief": advisory.get("brief", "")},
             "selector": selector or None,
         },
         "opportunities": opportunities,
         "trade_watch":   trade_watch,
-        "risk_flags":    advisory.get("risk_flags", []),
+        "risk_flags":    risk_flags,
         "macro": {
-            "vix":            vix,
-            "regime":         regime,
-            "yield_10y":      yield_10y,
-            "dxy":            dxy,
-            "vpoc_migration": state.get("vpoc_migration"),
-            "session_open":   bool(state.get("session_open")),
-            "adx":            state.get("adx"),
-            "rsi":            state.get("rsi"),
-            "close":          state.get("close"),
-            "ema20":          state.get("ema20"),
-            "pdh":            state.get("pdh"),
-            "pdl":            state.get("pdl"),
+            "vix":           fundamentals.get("vix"),
+            "vix_regime":    fundamentals.get("vix_regime", ""),
+            "regime":        regime,
+            "yield_10y":     fundamentals.get("yield_10y"),
+            "yield_trend":   fundamentals.get("yield_trend", ""),
+            "dxy":           fundamentals.get("dxy"),
+            "dxy_trend":     fundamentals.get("dxy_trend", ""),
+            "spy_vol_ratio": fundamentals.get("spy_vol_ratio"),
+            "session_open":  _is_session_open(),
+            "close":         mkt.get("close"),
+            "ema20":         mkt.get("ema20"),
+            "vwap":          mkt.get("vwap"),
+            "rsi":           mkt.get("rsi"),
+            "adx":           mkt.get("adx"),
+            "atr":           mkt.get("atr"),
+            "pdh":           mkt.get("pdh"),
+            "pdl":           mkt.get("pdl"),
+            "tailwinds":     fundamentals.get("tailwinds", []),
         },
         "gate_status": gate_status,
     }
+
+    _screener_cache    = result
+    _screener_cache_ts = now
+    return result
+
+
+@app.post("/api/screener/refresh")
+def api_screener_refresh():
+    """Force-clear the screener cache so the next GET fetches fresh data."""
+    global _screener_cache, _screener_cache_ts
+    _screener_cache    = {}
+    _screener_cache_ts = 0.0
+    return {"cleared": True}
 
 
 @app.get("/api/settings")

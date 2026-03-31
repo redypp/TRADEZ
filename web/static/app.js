@@ -985,6 +985,17 @@ async function fetchScreener() {
   } catch { /* silent */ }
 }
 
+async function screenerRefresh() {
+  const btn = $('screener-refresh-btn');
+  if (btn) { btn.textContent = '⟳ Fetching…'; btn.disabled = true; }
+  try {
+    await fetch('/api/screener/refresh', { method: 'POST' });
+    await fetchScreener();
+  } finally {
+    if (btn) { btn.textContent = '⟳ Refresh'; btn.disabled = false; }
+  }
+}
+
 function renderScreener(d) {
   if (!d?.available) return;
 
@@ -1021,9 +1032,13 @@ function renderScreener(d) {
   const tsEl  = $('sh-ts');
   if (tsEl)  tsEl.textContent  = bias.timestamp ? relTime(bias.timestamp) : '—';
   const wfEl  = $('sh-watchfor');
-  if (wfEl) {
-    wfEl.textContent = bias.watch_for && bias.watch_for !== 'n/a' ? `Watch: ${bias.watch_for}` : '';
-  }
+  const wfSep = $('sh-watchfor-sep');
+  const hasWf = bias.watch_for && bias.watch_for !== 'n/a';
+  if (wfEl)  wfEl.textContent = hasWf ? `Watch: ${bias.watch_for}` : '';
+  if (wfSep) wfSep.style.display = hasWf ? '' : 'none';
+
+  const asofEl = $('sh-asof');
+  if (asofEl && d.as_of) asofEl.textContent = `Data as of ${relTime(d.as_of)} · refreshes every 45s`;
 
   // ── Specialists ────────────────────────────────────────────────────────────
   const specList = $('specialists-list');
@@ -1180,28 +1195,62 @@ function renderScreener(d) {
   const macroEl = $('screener-macro');
   if (macroEl) {
     const regimeCls = {
-      TRENDING:'up', NORMAL:'flat', CAUTIOUS:'down', HIGH_VOL:'down', NO_TRADE:'down',
+      RISK_ON:'up', TRENDING:'up', NORMAL:'flat',
+      CAUTIOUS:'down', RISK_OFF:'down', HIGH_VOL:'down', NO_TRADE:'down', UNKNOWN:'flat',
     }[macro.regime || ''] || 'flat';
+
+    const trendBadge = t => {
+      if (!t) return '';
+      const m = {
+        RISING:'↑ RISING', FALLING:'↓ FALLING', STABLE:'→ STABLE',
+        STRENGTHENING:'↑ STRONG', WEAKENING:'↓ WEAK',
+        RISING:'up', FALLING:'down',
+      };
+      const cls = /RISING|STRONG/.test(t) ? 'down' : /FALL|WEAK/.test(t) ? 'up' : 'flat';
+      return `<span class="sm-badge ${cls}">${t}</span>`;
+    };
+
     const rows = [];
-    const addMacroRow = (lbl, val, badge, bCls) => rows.push(`
+    const r = (lbl, val, extra='') => rows.push(`
       <div class="sm-row">
         <span class="sm-lbl">${lbl}</span>
-        <span class="sm-val">${val}${badge ? `<span class="sm-badge ${bCls||''}">${badge}</span>` : ''}</span>
+        <span class="sm-val">${val}${extra}</span>
       </div>`);
 
-    addMacroRow('Regime',   macro.regime || '—',    macro.regime, regimeCls);
-    addMacroRow('VIX',      macro.vix != null       ? Number(macro.vix).toFixed(2)       : '—');
-    addMacroRow('10Y Yield',macro.yield_10y != null  ? Number(macro.yield_10y).toFixed(3) + '%' : '—');
-    addMacroRow('DXY',      macro.dxy != null        ? Number(macro.dxy).toFixed(2)       : '—');
-    if (macro.close)  addMacroRow('MES Price', Number(macro.close).toFixed(2));
-    if (macro.ema20)  addMacroRow('EMA20',     Number(macro.ema20).toFixed(2));
-    if (macro.adx != null) addMacroRow('ADX', Number(macro.adx).toFixed(1));
-    if (macro.rsi != null) addMacroRow('RSI', Number(macro.rsi).toFixed(1));
-    if (macro.pdh)    addMacroRow('PDH',  Number(macro.pdh).toFixed(2));
-    if (macro.pdl)    addMacroRow('PDL',  Number(macro.pdl).toFixed(2));
-    if (macro.vpoc_migration) addMacroRow('VPOC', macro.vpoc_migration);
-    addMacroRow('Session',  macro.session_open ? 'OPEN' : 'CLOSED',
-                macro.session_open ? 'OPEN' : null, macro.session_open ? 'up' : 'flat');
+    r('Session',   macro.session_open ? 'OPEN' : 'CLOSED',
+      `<span class="sm-badge ${macro.session_open ? 'up' : 'flat'}">${macro.session_open ? 'LIVE' : 'CLOSED'}</span>`);
+    r('Regime',    macro.regime || '—',  `<span class="sm-badge ${regimeCls}">${macro.regime || '—'}</span>`);
+    r('VIX',       macro.vix != null ? Number(macro.vix).toFixed(2) : '—',
+      macro.vix_regime ? `<span class="sm-badge ${macro.vix_regime === 'LOW' ? 'up' : macro.vix_regime === 'HIGH' || macro.vix_regime === 'EXTREME' ? 'down' : 'flat'}">${macro.vix_regime}</span>` : '');
+    r('10Y Yield',  macro.yield_10y != null ? Number(macro.yield_10y).toFixed(3) + '%' : '—',
+      macro.yield_trend ? trendBadge(macro.yield_trend) : '');
+    r('DXY',        macro.dxy != null ? Number(macro.dxy).toFixed(2) : '—',
+      macro.dxy_trend   ? trendBadge(macro.dxy_trend)   : '');
+    if (macro.spy_vol_ratio != null)
+      r('SPY Vol',  `${Number(macro.spy_vol_ratio).toFixed(2)}x avg`,
+        `<span class="sm-badge ${macro.spy_vol_ratio >= 1.2 ? 'up' : macro.spy_vol_ratio < 0.7 ? 'down' : 'flat'}">${macro.spy_vol_ratio >= 1.2 ? 'ACTIVE' : macro.spy_vol_ratio < 0.7 ? 'THIN' : 'NORMAL'}</span>`);
+
+    rows.push('<div style="height:6px"></div>');
+    if (macro.close)  r('MES',   Number(macro.close).toFixed(2));
+    if (macro.ema20)  r('EMA20', Number(macro.ema20).toFixed(2),
+      macro.close ? `<span class="sm-badge ${macro.close >= macro.ema20 ? 'up' : 'down'}">${macro.close >= macro.ema20 ? 'ABOVE' : 'BELOW'}</span>` : '');
+    if (macro.vwap)   r('VWAP',  Number(macro.vwap).toFixed(2),
+      macro.close ? `<span class="sm-badge ${macro.close >= macro.vwap ? 'up' : 'down'}">${macro.close >= macro.vwap ? 'ABOVE' : 'BELOW'}</span>` : '');
+    if (macro.adx  != null) r('ADX', Number(macro.adx).toFixed(1),
+      `<span class="sm-badge ${macro.adx > 25 ? 'up' : macro.adx < 15 ? 'flat' : 'flat'}">${macro.adx > 25 ? 'TRENDING' : 'RANGING'}</span>`);
+    if (macro.rsi  != null) r('RSI', Number(macro.rsi).toFixed(1),
+      `<span class="sm-badge ${macro.rsi > 60 ? 'up' : macro.rsi < 40 ? 'down' : 'flat'}">${macro.rsi > 60 ? 'BULL' : macro.rsi < 40 ? 'BEAR' : 'NEUTRAL'}</span>`);
+    if (macro.atr)    r('ATR',   Number(macro.atr).toFixed(2));
+    if (macro.pdh)    r('PDH',   Number(macro.pdh).toFixed(2));
+    if (macro.pdl)    r('PDL',   Number(macro.pdl).toFixed(2));
+
+    // Tailwinds
+    if (macro.tailwinds?.length) {
+      rows.push('<div style="height:6px"></div>');
+      macro.tailwinds.forEach(t =>
+        rows.push(`<div class="rf-item" style="background:rgba(34,197,94,0.07);border-color:rgba(34,197,94,0.2)"><span class="rf-icon" style="color:var(--green)">↑</span>${t}</div>`)
+      );
+    }
 
     macroEl.innerHTML = rows.join('');
   }
