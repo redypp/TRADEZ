@@ -108,8 +108,7 @@ function setConn(state) {
   el.textContent = map[state] || '● —';
   el.className   = cls[state] || 'conn-pill';
 
-  const dot = document.querySelector('.tab-dot');
-  if (dot) dot.className = 'tab-dot' + (state === 'live' || state === 'polling' ? ' live' : '');
+  // tab-dot removed from nav; connection status lives only in conn-pill
 }
 
 // ── Chart ─────────────────────────────────────────────────────────────────────
@@ -985,12 +984,19 @@ function updateStrategyBadges(enabled) {
   const swBadge  = document.querySelector('.sm-item[data-strat="SWING"] .sm-live-badge');
 
   if (brtDot)   { brtDot.className   = 'sm-item-dot ' + (brtLive ? 'live' : 'inactive'); }
-  if (brtBadge) { brtBadge.textContent = brtLive ? 'LIVE' : 'INACTIVE'; brtBadge.style.display = brtLive ? '' : 'none'; }
+  if (brtBadge) { brtBadge.style.display = brtLive ? '' : 'none'; }
   if (swDot)    { swDot.className    = 'sm-item-dot ' + (swingLive ? 'live' : 'inactive'); }
-  if (swBadge)  { swBadge.textContent = swingLive ? 'LIVE' : 'INACTIVE'; swBadge.style.display = swingLive ? '' : 'none'; }
+  if (swBadge)  { swBadge.style.display = swingLive ? '' : 'none'; }
+
+  // Strategy selector button dot — reflect whichever strategy is currently live
+  const stratDot   = $('strat-live-dot');
+  const stratLabel = $('strat-label');
+  const anyLive    = brtLive || swingLive;
+  if (stratDot)   { stratDot.className  = anyLive ? 'strat-dot live' : 'strat-dot'; }
+  if (stratLabel) { stratLabel.className = anyLive ? 'strat-label live' : 'strat-label'; }
 
   // Swing tab header chip
-  const chip = document.querySelector('#tab-swing .swing-inactive-chip');
+  const chip = document.querySelector('#tab-swing .swing-inactive-chip, #tab-swing .swing-live-chip');
   if (chip) {
     chip.textContent = swingLive ? 'LIVE' : 'INACTIVE';
     chip.className   = swingLive ? 'sph-stat-chip swing-live-chip' : 'sph-stat-chip swing-inactive-chip';
