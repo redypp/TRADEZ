@@ -1170,6 +1170,9 @@ function renderSwingScreener(d) {
 }
 
 // ── LLM Swing Scout ──────────────────────────────────────────────────────────
+let _scoutPollInterval = null;
+let _scoutLastTs = null;
+
 async function fetchSwingLLMIdeas() {
   try {
     const r = await fetch('/api/swing/llm-ideas');
@@ -1177,6 +1180,62 @@ async function fetchSwingLLMIdeas() {
     const d = await r.json();
     renderSwingLLMIdeas(d);
   } catch { /* silent */ }
+}
+
+async function triggerSwingScout() {
+  const btn = $('scout-scan-btn');
+  if (btn) { btn.textContent = 'Scanning…'; btn.disabled = true; btn.classList.add('scanning'); }
+  const body = $('swing-llm-ideas-body');
+  if (body) body.innerHTML = `
+    <div class="scout-loading">
+      <div class="scout-spinner"></div>
+      <div class="scout-loading-steps">
+        <div class="sls-step active" id="sls-1">Gathering market intelligence across 50+ stocks…</div>
+        <div class="sls-step" id="sls-2">Grok scanning news &amp; social sentiment…</div>
+        <div class="sls-step" id="sls-3">GPT-4 validating macro &amp; risk/reward…</div>
+        <div class="sls-step" id="sls-4">Claude ranking &amp; writing trade theses…</div>
+      </div>
+    </div>`;
+  try {
+    const r = await fetch('/api/swing/llm-ideas/scan', { method: 'POST' });
+    const d = await r.json();
+    if (d.status === 'already_running') {
+      if (body) body.innerHTML = '<div class="swing-empty">Scan already in progress — check back in a minute.</div>';
+      if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
+      return;
+    }
+  } catch {
+    if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
+    return;
+  }
+  // Animate loading steps while polling
+  _scoutLastTs = null;
+  let step = 1;
+  const stepTimings = [0, 8000, 20000, 40000];
+  stepTimings.forEach((ms, i) => {
+    setTimeout(() => {
+      document.querySelectorAll('.sls-step').forEach((el, j) => {
+        el.classList.toggle('active', j === i);
+        el.classList.toggle('done', j < i);
+      });
+    }, ms);
+  });
+  if (_scoutPollInterval) clearInterval(_scoutPollInterval);
+  _scoutPollInterval = setInterval(async () => {
+    try {
+      const sr = await fetch('/api/swing/llm-ideas/status');
+      const st = await sr.json();
+      if (!st.scanning) {
+        clearInterval(_scoutPollInterval);
+        _scoutPollInterval = null;
+        // Bust cache by fetching fresh
+        const fr = await fetch('/api/swing/llm-ideas?bust=' + Date.now());
+        const fd = await fr.json();
+        renderSwingLLMIdeas(fd);
+        if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
+      }
+    } catch { /* keep polling */ }
+  }, 3000);
 }
 
 function renderSwingLLMIdeas(d) {

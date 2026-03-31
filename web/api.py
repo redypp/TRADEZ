@@ -1154,18 +1154,17 @@ def api_swing_screener():
 
 
 @app.get("/api/swing/llm-ideas")
-def api_swing_llm_ideas():
+def api_swing_llm_ideas(bust: Optional[str] = None):
     """
-    Return the latest LLM swing scout results (Grok → GPT-4 → Claude pipeline).
-    Reads from bot_state["swing_scout"] — populated by run_eod_swing_scan().
-    Falls back to empty result if no scan has run yet.
-    Cached for 10 minutes (same TTL as screener).
+    Return the latest LLM swing scout results.
+    Reads from bot_state["swing_scout"] — populated by EOD scan or manual trigger.
+    Pass ?bust=<anything> to bypass the 10-minute cache.
     """
     import time as _time
     import json as _json
     cache = getattr(api_swing_llm_ideas, "_cache", None)
     cache_ts = getattr(api_swing_llm_ideas, "_cache_ts", 0)
-    if cache is not None and (_time.time() - cache_ts) < 600:
+    if bust is None and cache is not None and (_time.time() - cache_ts) < 600:
         return cache
     try:
         state = get_bot_state()
@@ -1184,6 +1183,58 @@ def api_swing_llm_ideas():
     except Exception as e:
         logger.error(f"[SwingLLMIdeas] {e}")
         return {"top_ideas": [], "market_note": "", "error": str(e)}
+
+
+# Scan-in-progress flag (prevents parallel scans)
+_scout_scan_running = False
+
+@app.post("/api/swing/llm-ideas/scan")
+def api_swing_llm_ideas_scan():
+    """
+    Trigger an on-demand LLM swing scout scan (runs in background thread).
+    Returns immediately with {"status": "started"} or {"status": "already_running"}.
+    Poll GET /api/swing/llm-ideas to see results as they complete.
+    """
+    global _scout_scan_running
+    if _scout_scan_running:
+        return {"status": "already_running"}
+
+    def _run():
+        global _scout_scan_running
+        _scout_scan_running = True
+        try:
+            import json as _json
+            from strategy.llm_swing_scout import run_swing_scout
+            from data.fundamentals import get_live_fundamentals
+            from data.trade_log import update_bot_state
+            logger.info("[SwingScout] Manual scan triggered from dashboard")
+            try:
+                fund = get_live_fundamentals()
+            except Exception:
+                fund = {}
+            result = run_swing_scout({
+                "vix":       fund.get("vix", 18.0),
+                "dxy":       fund.get("dxy", 104.0),
+                "yield_10y": fund.get("yield_10y", 4.3),
+            })
+            update_bot_state({"swing_scout": _json.dumps(result)})
+            # Bust the GET cache so next poll returns fresh data
+            api_swing_llm_ideas._cache    = result
+            api_swing_llm_ideas._cache_ts = __import__("time").time()
+            logger.info(f"[SwingScout] Manual scan complete — {len(result.get('top_ideas', []))} ideas")
+        except Exception as e:
+            logger.error(f"[SwingScout] Manual scan failed: {e}")
+        finally:
+            _scout_scan_running = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started"}
+
+
+@app.get("/api/swing/llm-ideas/status")
+def api_swing_llm_ideas_status():
+    """Returns whether a scan is currently in progress."""
+    return {"scanning": _scout_scan_running}
 
 
 @app.get("/api/strategy/status")
