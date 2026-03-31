@@ -944,20 +944,84 @@ function renderSetupChecklist(broker) {
   }).join('');
 }
 
+function renderInfraGrid(broker) {
+  const el = $('stack-infra-grid');
+  if (!el || !broker) return;
+
+  const ok   = v => v ? '✓' : '✗';
+  const cls  = v => v ? 'infra-status ok' : 'infra-status warn';
+  const strat = broker.strategy_enabled || {};
+
+  const cards = [
+    {
+      icon: '🖥',
+      title: 'VPS',
+      sub: `${broker.vps?.provider || 'DigitalOcean'} · ${broker.vps?.host || '137.184.48.18'}`,
+      rows: (broker.vps?.services || []).map(s => ({ label: s, ok: true, val: 'Running' })),
+    },
+    {
+      icon: '📈',
+      title: 'Alpaca',
+      sub: `US Equities · ${broker.alpaca?.mode || 'Paper'} · Momentum Swing`,
+      rows: [
+        { label: 'Credentials',    ok: broker.alpaca?.credentials_set, val: broker.alpaca?.credentials_set ? 'Set' : 'Not set' },
+        { label: 'Strategy live',  ok: !!strat.SWING, val: strat.SWING ? 'LIVE' : 'Inactive' },
+        { label: 'Mode',           ok: true, val: broker.alpaca?.mode || 'Paper' },
+      ],
+    },
+    {
+      icon: '⚡',
+      title: 'Tradovate',
+      sub: 'Futures · MES / MGC · BRT strategy',
+      rows: [
+        { label: 'Credentials', ok: broker.tradovate?.credentials_set, val: broker.tradovate?.credentials_set ? `Set (${broker.tradovate.username})` : 'Not set — pending' },
+        { label: 'Strategy live', ok: !!strat.BRT, val: strat.BRT ? 'LIVE' : 'Inactive' },
+        { label: 'Mode', ok: true, val: broker.tradovate?.mode || 'DEMO' },
+      ],
+    },
+    {
+      icon: '🤖',
+      title: 'LLM Advisory',
+      sub: 'Grok → GPT-4 → Claude pipeline',
+      rows: [
+        { label: 'Grok (xAI)',   ok: broker.llm?.grok,      val: broker.llm?.grok      ? 'Key set' : 'Not set' },
+        { label: 'GPT-4',        ok: broker.llm?.openai,    val: broker.llm?.openai    ? 'Key set' : 'Not set' },
+        { label: 'Claude',       ok: broker.llm?.anthropic, val: broker.llm?.anthropic ? 'Key set' : 'Not set' },
+      ],
+    },
+    {
+      icon: '📡',
+      title: 'Telegram',
+      sub: 'Trade alerts & bot notifications',
+      rows: [
+        { label: 'Configured', ok: broker.telegram?.configured, val: broker.telegram?.configured ? `Active (chat ${broker.telegram.chat_id})` : 'Not configured' },
+      ],
+    },
+  ];
+
+  el.innerHTML = cards.map(card => `
+    <div class="infra-card">
+      <div class="infra-card-head">
+        <span class="infra-icon">${card.icon}</span>
+        <div>
+          <div class="infra-title">${card.title}</div>
+          <div class="infra-sub">${card.sub}</div>
+        </div>
+      </div>
+      <div class="infra-rows">
+        ${card.rows.map(r => `
+          <div class="infra-row">
+            <span class="infra-row-label">${r.label}</span>
+            <span class="${cls(r.ok)}">${ok(r.ok)} ${r.val}</span>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
 async function refreshStackTab() {
   const broker = await fetchBrokerStatus();
+  renderInfraGrid(broker);
   renderSetupChecklist(broker);
-  // Also update the broker status badge in the Tradovate card
-  const bsEl = $('stack-broker-status');
-  if (bsEl && broker?.tradovate) {
-    if (broker.tradovate.credentials_set) {
-      bsEl.textContent = `✓ Connected — ${broker.tradovate.mode}`;
-      bsEl.style.color = 'var(--green)';
-    } else {
-      bsEl.textContent = '⚠ Credentials not set — fill in .env';
-      bsEl.style.color = 'var(--amber)';
-    }
-  }
 }
 
 // Hook into tab switching — refresh Stack tab data when selected

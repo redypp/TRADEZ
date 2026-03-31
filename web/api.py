@@ -430,8 +430,11 @@ def api_broker_status():
         s.TRADOVATE_USERNAME and s.TRADOVATE_PASSWORD
         and s.TRADOVATE_CID and s.TRADOVATE_SEC
     )
-    alpaca_ready = bool(s.ALPACA_API_KEY and s.ALPACA_SECRET_KEY)
-    telegram_ready = bool(s.TELEGRAM_TOKEN and s.TELEGRAM_CHAT_ID)
+    alpaca_ready    = bool(s.ALPACA_API_KEY and s.ALPACA_SECRET_KEY)
+    telegram_ready  = bool(s.TELEGRAM_TOKEN and s.TELEGRAM_CHAT_ID)
+    grok_ready      = bool(getattr(s, "GROK_API_KEY", ""))
+    openai_ready    = bool(getattr(s, "OPENAI_API_KEY", ""))
+    anthropic_ready = bool(getattr(s, "ANTHROPIC_API_KEY", ""))
 
     return {
         "paper_trading": s.PAPER_TRADING,
@@ -439,18 +442,33 @@ def api_broker_status():
             "credentials_set": tradovate_ready,
             "mode":            "DEMO" if s.PAPER_TRADING else "LIVE",
             "username":        s.TRADOVATE_USERNAME or "(not set)",
+            "note":            "Futures — MES/MGC via Tradovate API",
         },
         "alpaca": {
             "credentials_set": alpaca_ready,
+            "mode":            "Paper" if s.PAPER_TRADING else "Live",
+            "base_url":        getattr(s, "ALPACA_BASE_URL", "paper-api.alpaca.markets"),
+            "note":            "US Equities — Momentum Swing strategy",
         },
         "telegram": {
             "configured": telegram_ready,
             "chat_id":    s.TELEGRAM_CHAT_ID or "(not set)",
         },
+        "llm": {
+            "grok":      grok_ready,
+            "openai":    openai_ready,
+            "anthropic": anthropic_ready,
+        },
+        "vps": {
+            "host":     "137.184.48.18",
+            "provider": "DigitalOcean",
+            "services": ["tradez-dashboard", "tradez-scheduler"],
+        },
         "symbols":  s.SYMBOLS,
+        "strategy_enabled": getattr(s, "STRATEGY_ENABLED", {}),
         "risk": {
-            "per_trade_pct":     s.RISK_PER_TRADE * 100,
-            "daily_stop_pct":    s.MAX_DAILY_DRAWDOWN * 100,
+            "per_trade_pct":      s.RISK_PER_TRADE * 100,
+            "daily_stop_pct":     s.MAX_DAILY_DRAWDOWN * 100,
             "portfolio_heat_pct": s.PORTFOLIO_HEAT_MAX * 100,
         },
     }

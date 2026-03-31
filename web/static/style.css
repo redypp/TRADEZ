@@ -1118,6 +1118,20 @@ code {
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 6px; padding: 0.75rem;
 }
+/* Infrastructure grid */
+.stack-infra-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+.infra-card { background: var(--s2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.infra-card-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.75rem; }
+.infra-icon  { font-size: 1.2rem; line-height: 1; margin-top: 2px; }
+.infra-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.infra-sub   { font-size: 10px; color: var(--text3); margin-top: 2px; }
+.infra-rows  { display: flex; flex-direction: column; gap: 6px; }
+.infra-row   { display: flex; justify-content: space-between; align-items: center; }
+.infra-row-label { font-size: 11px; color: var(--text3); }
+.infra-status    { font-size: 11px; font-family: var(--mono); }
+.infra-status.ok   { color: var(--green); }
+.infra-status.warn { color: var(--amber); }
+
 .srg-label { font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; margin-bottom: 4px; }
 .srg-val   { font-size: 1.15rem; font-weight: 700; color: var(--text); font-family: var(--mono); margin-bottom: 4px; }
 .srg-val.green { color: var(--green); }

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=3"/>
+  <link rel="stylesheet" href="/static/style.css?v=4"/>
 </head>
 <body>
 
@@ -516,7 +516,19 @@
 <div id="tab-stack" class="tab-panel">
   <div class="section-header">
     <h2>Stack &amp; Risk</h2>
-    <p class="section-sub">Live risk configuration, broker connection status, and pre-flight checklist.</p>
+    <p class="section-sub">Live infrastructure status — VPS, brokers, APIs, and risk settings.</p>
+  </div>
+
+  <!-- Infrastructure cards -->
+  <div class="stack-section">
+    <div class="stack-section-header">
+      <h3 class="stack-section-title">Infrastructure</h3>
+      <button class="btn-secondary" onclick="refreshStackTab()">↺ Refresh</button>
+    </div>
+    <div id="stack-infra-grid" class="stack-infra-grid">
+      <!-- populated by JS -->
+      <div class="sc-loading">Loading…</div>
+    </div>
   </div>
 
   <!-- Risk settings grid -->
@@ -551,29 +563,20 @@
     <div class="srg-source" id="risk-config-source"></div>
   </div>
 
-  <!-- Broker / setup checklist -->
+  <!-- Pre-flight checklist -->
   <div class="stack-section">
-    <div class="stack-section-header">
-      <h3 class="stack-section-title">Pre-Flight Checklist</h3>
-      <button class="btn-secondary" onclick="refreshStackTab()">↺ Refresh</button>
-    </div>
+    <h3 class="stack-section-title">Pre-Flight Checklist</h3>
     <div id="setup-checklist" class="setup-checklist">
-      <div class="sc-loading">Loading broker status…</div>
+      <div class="sc-loading">Loading…</div>
     </div>
   </div>
 
-  <!-- Broker connection detail -->
-  <div class="stack-section">
-    <h3 class="stack-section-title">Broker Status</h3>
-    <div class="broker-card">
-      <div class="broker-name">Tradovate (Futures)</div>
-      <div class="broker-status" id="stack-broker-status">Checking…</div>
-    </div>
-  </div>
+  <!-- hidden element kept for JS compat -->
+  <span id="stack-broker-status" style="display:none"></span>
 </div><!-- /tab-stack -->
 
 
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=4"></script>
 
 <script>
 // ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────
