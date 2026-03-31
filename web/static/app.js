@@ -291,6 +291,21 @@ function renderRegime(regime, state) {
     badge.className   = 'rb-badge ' + (regime.can_trade ? 'ok' : 'off');
   }
 
+  // Mirror regime data into Swing tab
+  const swName = $('sw-rb-name');  if (swName)  { swName.textContent = r; swName.style.color = color; }
+  const swDesc = $('sw-rb-desc');  if (swDesc)  swDesc.textContent = regime.description || '—';
+  const swBar  = $('swing-regime-bar'); if (swBar) swBar.style.borderBottom = `2px solid ${color}38`;
+  const swBadge = $('sw-rb-badge'); if (swBadge) {
+    swBadge.textContent = regime.can_trade ? '✓ TRADING' : '✗ BLOCKED';
+    swBadge.className   = 'rb-badge ' + (regime.can_trade ? 'ok' : 'off');
+  }
+  // VIX filter badge on Swing tab
+  if (state?.vix != null) {
+    setText('sw-rc-vix', f(state.vix, 1));
+    const vf = $('sw-vix-filter');
+    if (vf) { vf.textContent = state.vix < 35 ? 'OK' : 'HIGH'; vf.className = 'il-badge ' + (state.vix < 35 ? 'ok' : 'warn'); }
+  }
+
   if (state) {
     setText('rc-vix',   state.vix       != null ? f(state.vix, 1)          : '—');
     setText('rc-yield', state.yield_10y != null ? f(state.yield_10y, 3)+'%': '—');
@@ -1105,7 +1120,15 @@ function renderSwingScreener(d) {
   if (!body) return;
 
   const setups = d?.setups || [];
-  if (count) count.textContent = setups.length || '0';
+  if (count) count.textContent = setups.length ? `· ${setups.length} found` : '';
+
+  // Update status row counts
+  const bigCount = $('sw-setup-big');
+  if (bigCount) bigCount.textContent = setups.length || '0';
+  const bkCount = $('sw-breakout-count');
+  const pbCount = $('sw-pullback-count');
+  if (bkCount) bkCount.textContent = setups.filter(s => s.setup_type === 'BREAKOUT').length + ' breakout';
+  if (pbCount) pbCount.textContent = setups.filter(s => s.setup_type === 'PULLBACK').length + ' pullback';
 
   if (!setups.length) {
     body.innerHTML = '<div class="swing-empty">No setups detected today. Market may be extended or strategy inactive.</div>';

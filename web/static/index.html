@@ -399,76 +399,110 @@
 
 <!-- ══════════════════════════════════════ TAB: MOMENTUM SWING -->
 <div id="tab-swing" class="tab-panel">
-  <div class="strat-page-header">
-    <div class="sph-info">
-      <div class="sph-eyebrow">STRATEGY · US EQUITIES · DAILY</div>
-      <h1 class="sph-title">Momentum Swing</h1>
-      <p class="sph-desc">Momentum-based swing system on liquid US stocks. Two setups: breakout above a compressed range on elevated volume, or pullback continuation bounce off the 20 EMA. Holds days to weeks.</p>
+
+  <!-- Regime banner (same layout as BRT) -->
+  <div id="swing-regime-bar" class="regime-bar">
+    <div class="rb-left">
+      <span class="rb-eyebrow">ACTIVE REGIME</span>
+      <span id="sw-rb-name" class="rb-name">—</span>
     </div>
-    <div class="sph-status-group">
-      <div class="sph-stat-chip swing-inactive-chip">INACTIVE</div>
-      <div class="sph-sig">
-        <div class="sph-sig-label">LIVE SETUPS</div>
-        <div class="sph-sig-val" id="swing-setup-count">—</div>
+    <div class="rb-center">
+      <span id="sw-rb-desc" class="rb-desc">Awaiting data…</span>
+    </div>
+    <div class="rb-right">
+      <div class="rb-chips">
+        <div class="rb-chip"><span class="rc-lbl">VIX</span><span id="sw-rc-vix" class="rc-val">—</span></div>
+        <div class="rb-chip"><span class="rc-lbl">BROKER</span><span class="rc-val" style="color:var(--green)">ALPACA</span></div>
+        <div class="rb-chip"><span class="rc-lbl">TF</span><span class="rc-val">DAILY</span></div>
       </div>
+      <span id="sw-rb-badge" class="rb-badge">—</span>
     </div>
   </div>
 
-  <div class="strat-page-body">
-    <div class="spb-main">
-
-      <!-- Live screener -->
-      <div class="card">
-        <div class="card-head">SCREENER · TODAY'S SETUPS</div>
-        <div id="swing-screener-body">
-          <div class="swing-empty">Strategy not yet active — enable STRATEGY_SWING_ENABLED=true in .env to scan live setups.</div>
+  <!-- Status row -->
+  <div class="live-grid">
+    <div class="lg-section">
+      <div class="section-label">BOT STATUS</div>
+      <div class="status-block">
+        <div class="sb-main">
+          <div id="sw-state-pill" class="state-pill neutral">
+            <span class="sp-dot"></span>
+            <span id="sw-state-text">SCANNING</span>
+          </div>
+          <div id="sw-watch-line" class="watch-line">EOD scan — daily signals</div>
+        </div>
+        <div class="sb-meta">
+          <div class="sbm-row"><span class="sbm-lbl">Universe</span><span class="sbm-val">~30 liquid US stocks</span></div>
+          <div class="sbm-row"><span class="sbm-lbl">Scan runs</span><span class="sbm-val">After market close</span></div>
+          <div class="sbm-row"><span class="sbm-lbl">Hold period</span><span class="sbm-val">Days to weeks</span></div>
         </div>
       </div>
+    </div>
 
-      <div class="card" style="margin-top:12px">
+    <div class="lg-section">
+      <div class="section-label">SETUPS TODAY</div>
+      <div class="big-number" id="sw-setup-big">—</div>
+      <div class="pnl-sub">
+        <span class="ps-wins" id="sw-breakout-count" style="color:var(--green)">0 breakout</span>
+        <span class="ps-sep">/</span>
+        <span class="ps-losses" id="sw-pullback-count" style="color:var(--amber)">0 pullback</span>
+      </div>
+    </div>
+
+    <div class="lg-section">
+      <div class="section-label">RISK / TRADE</div>
+      <div class="big-number mono">0.75%</div>
+      <div class="price-detail">
+        <span class="pd-lbl">TP1</span><span class="pd-val mono" style="color:var(--green)">1.5R</span>
+        <span class="pd-lbl" style="margin-left:8px">TP2</span><span class="pd-val mono" style="color:var(--green)">3R</span>
+      </div>
+    </div>
+
+    <div class="lg-section">
+      <div class="section-label">FILTERS</div>
+      <div class="ind-list">
+        <div class="il-row"><span class="il-lbl">EMA Trend</span><span class="il-badge ok">ACTIVE</span></div>
+        <div class="il-row"><span class="il-lbl">Volume ×1.5</span><span class="il-badge ok">ACTIVE</span></div>
+        <div class="il-row"><span class="il-lbl">VIX &lt; 35</span><span id="sw-vix-filter" class="il-badge">—</span></div>
+      </div>
+    </div>
+  </div><!-- /live-grid -->
+
+  <!-- Screener + sidebar -->
+  <div class="live-lower" style="margin-top:0">
+    <div class="card" style="flex:2">
+      <div class="card-head">SCREENER · TODAY'S SETUPS <span id="swing-setup-count" class="filter-summary"></span></div>
+      <div id="swing-screener-body">
+        <div class="swing-empty">Scanning universe… setups will appear here.</div>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:12px">
+      <div class="card">
         <div class="card-head">PARAMETERS</div>
         <div class="param-list">
-          <div class="pm-row"><span class="pm-lbl">Universe</span><span class="pm-val">Liquid US stocks &gt; 1M avg vol</span></div>
-          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">Daily candles — EOD signals</span></div>
-          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">Price &gt; EMA20 &amp; EMA50 (both sloping up)</span></div>
-          <div class="pm-row"><span class="pm-lbl">Breakout window</span><span class="pm-val">Last 10 bars — tight range compression</span></div>
-          <div class="pm-row"><span class="pm-lbl">Volume confirm</span><span class="pm-val">Entry volume &gt; 1.5× 20-day avg</span></div>
-          <div class="pm-row"><span class="pm-lbl">Risk per trade</span><span class="pm-val">0.75% of account</span></div>
-          <div class="pm-row"><span class="pm-lbl">Target 1</span><span class="pm-val">1.5R — partial exit</span></div>
-          <div class="pm-row"><span class="pm-lbl">Target 2</span><span class="pm-val">3R — runner exits here</span></div>
-          <div class="pm-row"><span class="pm-lbl">Trailing stop</span><span class="pm-val">Below higher lows or EMA20</span></div>
-          <div class="pm-row"><span class="pm-lbl">Hold period</span><span class="pm-val">Several days to a few weeks</span></div>
+          <div class="pm-row"><span class="pm-lbl">Universe</span><span class="pm-val">~30 liquid US stocks</span></div>
+          <div class="pm-row"><span class="pm-lbl">Timeframe</span><span class="pm-val">Daily · EOD signals</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trend filter</span><span class="pm-val">Price &gt; EMA20 &amp; EMA50</span></div>
+          <div class="pm-row"><span class="pm-lbl">Risk / trade</span><span class="pm-val">0.75% of account</span></div>
+          <div class="pm-row"><span class="pm-lbl">TP1 / TP2</span><span class="pm-val">1.5R partial → 3R runner</span></div>
+          <div class="pm-row"><span class="pm-lbl">Trailing stop</span><span class="pm-val">Below higher lows / EMA20</span></div>
         </div>
       </div>
-    </div>
-
-    <div class="spb-side">
       <div class="card">
-        <div class="card-head">HOW IT WORKS</div>
-        <div class="strat-howto">
-          <div class="sht-step"><span class="sht-num">1</span><span><strong>Trend filter:</strong> price must be above both the 20 EMA and 50 EMA, with both sloping upward. No longs in downtrends.</span></div>
-          <div class="sht-step"><span class="sht-num">2</span><span><strong>Setup A — Breakout:</strong> stock compresses into a tight 10-day range (ATR-relative). Trigger: daily close above resistance on 1.5× avg volume.</span></div>
-          <div class="sht-step"><span class="sht-num">3</span><span><strong>Setup B — Pullback:</strong> stock pulls back to within 2% of EMA20 then shows a bullish rejection candle. Volume &gt; 1.2× avg confirms participation.</span></div>
-          <div class="sht-step"><span class="sht-num">4</span><span><strong>Entry:</strong> on candle close — no chasing opens. Position sized so the stop distance = 0.75% account risk.</span></div>
-          <div class="sht-step"><span class="sht-num">5</span><span><strong>Exit:</strong> take half off at 1.5R. Let runner go to 3R with a trailing stop below higher lows. Cut if price closes below EMA20.</span></div>
-          <div class="sht-step sht-rule"><span class="sht-ico">⚡</span><span><strong>Key insight:</strong> Trend filter is the edge. Breakouts in uptrending stocks with volume confirmation have significantly higher follow-through rates than random breakouts.</span></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:12px">
         <div class="card-head">ENTRY RULES</div>
         <div class="strat-rules">
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price &gt; EMA20 &amp; EMA50 (both sloping up)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Volume &gt; avg on breakout or bounce candle</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Avg daily volume &gt; 1M shares (liquidity)</span></div>
-          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>RSI not overextended (&lt; 75 on entry)</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Price below EMA50 — trend not confirmed</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>VIX &gt; 35 — panic market, no swing entries</span></div>
-          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>No volume confirmation on breakout</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Price &gt; EMA20 &amp; EMA50 (uptrend)</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Volume &gt; 1.5× avg on breakout</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>Avg daily vol &gt; 1M shares</span></div>
+          <div class="sr-item sr-pass"><span class="sr-check">✓</span><span>RSI &lt; 75 on entry</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>Price below EMA50</span></div>
+          <div class="sr-item sr-fail"><span class="sr-check">✗</span><span>VIX &gt; 35 — no swing entries</span></div>
         </div>
       </div>
     </div>
   </div>
+
 </div><!-- /tab-swing -->
 
 <!-- ═══════════════════════════════════ JOURNAL TAB ═══════════════════════════ -->
@@ -576,7 +610,7 @@
 </div><!-- /tab-stack -->
 
 
-<script src="/static/app.js?v=4"></script>
+<script src="/static/app.js?v=5"></script>
 
 <script>
 // ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────
