@@ -972,6 +972,264 @@ renderRegime = function(regime, state) {
   if (nameEl && regime?.current) nameEl.textContent = regime.current.replace('_', ' ');
 };
 
+// ── AI Screener ───────────────────────────────────────────────────────────────
+
+const SCREENER_POLL_MS = 15_000;
+
+async function fetchScreener() {
+  try {
+    const r = await fetch('/api/screener');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderScreener(data);
+  } catch { /* silent */ }
+}
+
+function renderScreener(d) {
+  if (!d?.available) return;
+
+  const bias   = d.bias    || {};
+  const macro  = d.macro   || {};
+  const specs  = d.specialists || {};
+  const flags  = d.risk_flags  || [];
+  const opps   = d.opportunities || [];
+  const watch  = d.trade_watch   || [];
+  const gate   = d.gate_status   || {};
+
+  // ── Bias hero ──────────────────────────────────────────────────────────────
+  const dir     = (bias.direction || 'NEUTRAL').toUpperCase();
+  const conf    = bias.confidence != null ? Math.round(bias.confidence * 100) : null;
+  const dirCls  = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[dir] || 'neutral';
+  const dirIcon = { BULLISH:'▲ BULLISH', BEARISH:'▼ BEARISH', NEUTRAL:'◆ NEUTRAL' }[dir] || dir;
+
+  const badge = $('sh-bias-badge');
+  if (badge) { badge.textContent = dirIcon; badge.className = `sh-bias-badge ${dirCls}`; }
+
+  const bar = $('sh-conf-bar');
+  const pct = $('sh-conf-pct');
+  if (bar) bar.style.width = conf != null ? `${conf}%` : '0%';
+  if (pct) pct.textContent = conf != null ? `${conf}%` : '—';
+  // color bar by direction
+  if (bar) bar.style.background = dir === 'BULLISH' ? 'var(--green)' : dir === 'BEARISH' ? 'var(--red)' : 'var(--blue)';
+
+  setText('sh-headline', bias.headline || '—');
+  const briefEl = $('sh-brief');
+  if (briefEl) briefEl.textContent = bias.brief || '';
+
+  const srcEl = $('sh-source');
+  if (srcEl) srcEl.textContent = bias.source || '—';
+  const tsEl  = $('sh-ts');
+  if (tsEl)  tsEl.textContent  = bias.timestamp ? relTime(bias.timestamp) : '—';
+  const wfEl  = $('sh-watchfor');
+  if (wfEl) {
+    wfEl.textContent = bias.watch_for && bias.watch_for !== 'n/a' ? `Watch: ${bias.watch_for}` : '';
+  }
+
+  // ── Specialists ────────────────────────────────────────────────────────────
+  const specList = $('specialists-list');
+  if (specList) {
+    const rows = [];
+
+    if (specs.grok?.summary) {
+      const grokSent = (specs.grok.sentiment || '—').toUpperCase();
+      const grokCls  = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[grokSent] || 'neutral';
+      rows.push(`
+        <div class="spec-item">
+          <div class="spec-header">
+            <span class="spec-logo grok">GROK</span>
+            <span class="spec-badge ${grokCls}">${grokSent}</span>
+            <span style="font-size:9px;color:var(--text3);margin-left:4px">X · REAL-TIME</span>
+          </div>
+          <div class="spec-text">${specs.grok.summary}</div>
+        </div>`);
+      rows.push('<div class="spec-divider"></div>');
+    }
+
+    if (specs.gpt4?.summary) {
+      rows.push(`
+        <div class="spec-item">
+          <div class="spec-header">
+            <span class="spec-logo gpt4">GPT-4</span>
+            <span style="font-size:9px;color:var(--text3);margin-left:4px">MACRO · QUANT</span>
+          </div>
+          <div class="spec-text">${specs.gpt4.summary}</div>
+        </div>`);
+      rows.push('<div class="spec-divider"></div>');
+    }
+
+    if (specs.claude?.brief) {
+      rows.push(`
+        <div class="spec-item">
+          <div class="spec-header">
+            <span class="spec-logo claude">CLAUDE</span>
+            <span style="font-size:9px;color:var(--text3);margin-left:4px">SYNTHESIS</span>
+          </div>
+          <div class="spec-text">${specs.claude.brief}</div>
+        </div>`);
+      rows.push('<div class="spec-divider"></div>');
+    }
+
+    if (specs.selector) {
+      const sel = specs.selector;
+      const selConf = sel.confidence != null ? `${Math.round(sel.confidence * 100)}%` : '—';
+      rows.push(`
+        <div class="spec-item">
+          <div class="spec-header">
+            <span class="spec-logo sel">SELECTOR</span>
+            <span style="font-size:9px;color:var(--text3);margin-left:4px">STRATEGY GATE</span>
+          </div>
+          <div class="spec-text">Strategy: <strong>${sel.strategy || '—'}</strong> · Bias: ${sel.bias || '—'} · Conf: ${selConf}</div>
+        </div>`);
+    }
+
+    if (rows.length === 0) {
+      specList.innerHTML = '<div class="spec-waiting">LLM advisory not yet fired.<br>Triggers at pre-market and each signal check.</div>';
+    } else {
+      // remove trailing divider
+      while (rows.length && rows[rows.length - 1].includes('spec-divider')) rows.pop();
+      specList.innerHTML = rows.join('');
+    }
+  }
+
+  // ── Gate status ────────────────────────────────────────────────────────────
+  const gateList = $('gate-status-list');
+  if (gateList) {
+    if (!gate || Object.keys(gate).length === 0) {
+      gateList.innerHTML = '<div class="spec-waiting">Scheduler not running — gates inactive.</div>';
+    } else {
+      const rows = [];
+      const addRow = (lbl, val, cls) =>
+        rows.push(`<div class="gs-row"><span class="gs-lbl">${lbl}</span><span class="gs-val ${cls||''}">${val||'—'}</span></div>`);
+      addRow('Strategy',  gate.llm_selection_strategy || '—');
+      addRow('LLM Bias',  gate.llm_selection_bias || '—');
+      const c = gate.llm_selection_confidence;
+      addRow('Confidence', c != null ? `${Math.round(c * 100)}%` : '—');
+      addRow('Cached at',  gate.llm_selection_at || '—');
+      addRow('Setup quality', gate.advisory_quality || '—');
+      addRow('Macro ok',  gate.advisory_macro_supports != null ? (gate.advisory_macro_supports ? '✓ YES' : '✗ NO') : '—',
+             gate.advisory_macro_supports ? 'on' : 'off');
+      gateList.innerHTML = rows.join('');
+    }
+  }
+
+  // ── Trade watch ────────────────────────────────────────────────────────────
+  const twList = $('trade-watch-list');
+  if (twList) {
+    if (!watch.length) {
+      twList.innerHTML = '<div class="tw-empty">No active setups.</div>';
+    } else {
+      twList.innerHTML = watch.map(w => {
+        const dir    = (w.direction || 'NEUTRAL').toUpperCase();
+        const dirCls = { LONG:'long', SHORT:'short', NEUTRAL:'neutral' }[dir] || 'neutral';
+        const dirLbl = { LONG:'▲ LONG', SHORT:'▼ SHORT', NEUTRAL:'◆ NEUTRAL' }[dir] || dir;
+        const p1     = w.priority === 1;
+        return `
+          <div class="tw-item">
+            <div class="tw-priority ${p1 ? 'p1' : ''}">${w.priority}</div>
+            <div class="tw-body">
+              <div class="tw-top">
+                <span class="tw-symbol">${w.symbol || '—'}</span>
+                <span class="tw-strat">${w.strategy || ''}</span>
+                <span class="tw-dir-badge ${dirCls}">${dirLbl}</span>
+              </div>
+              <div class="tw-trigger">${w.trigger || ''}</div>
+              <div class="tw-conf">Confidence: ${w.confidence || '—'}</div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Opportunities ──────────────────────────────────────────────────────────
+  const oppGrid = $('opp-grid');
+  if (oppGrid) {
+    if (!opps.length) {
+      oppGrid.innerHTML = '<div class="tw-empty">Scanning…</div>';
+    } else {
+      oppGrid.innerHTML = opps.map(o => {
+        const dir    = (o.direction || 'NEUTRAL').toUpperCase();
+        const dirCls = { LONG:'long', SHORT:'short', NEUTRAL:'neutral' }[dir] || 'neutral';
+        const dirLbl = { LONG:'▲ LONG', SHORT:'▼ SHORT', NEUTRAL:'◆ NEUTRAL' }[dir] || dir;
+        const q      = (o.quality || 'N/A').toUpperCase();
+        const qCls   = { HIGH:'high', MEDIUM:'medium', LOW:'low', 'N/A':'na' }[q] || 'na';
+        const qCard  = { HIGH:'quality-high', MEDIUM:'quality-medium', LOW:'quality-low', 'N/A':'quality-na' }[q] || 'quality-na';
+        const regOk  = o.regime_ok !== false;
+        const levelStr = o.watch_level
+          ? `${o.level_type || ''} @ ${Number(o.watch_level).toFixed(2)}`
+          : '';
+        return `
+          <div class="opp-card ${qCard}">
+            <div class="opp-top">
+              <span class="opp-symbol">${o.symbol || '—'}</span>
+              <span class="opp-strat">${o.strategy || ''}</span>
+              <span class="opp-tf">${o.timeframe || ''}</span>
+              <span class="opp-dir ${dirCls}">${dirLbl}</span>
+            </div>
+            <div class="opp-quality-row">
+              <span class="opp-quality-badge ${qCls}">${q}</span>
+              <span class="${regOk ? 'opp-regime-ok' : 'opp-regime-bad'}">${regOk ? '✓ Regime OK' : '✗ Regime blocked'}</span>
+            </div>
+            <div class="opp-note">${o.setup_note || ''}</div>
+            ${levelStr ? `<div class="opp-level">${levelStr}</div>` : ''}
+          </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Macro context ──────────────────────────────────────────────────────────
+  const macroEl = $('screener-macro');
+  if (macroEl) {
+    const regimeCls = {
+      TRENDING:'up', NORMAL:'flat', CAUTIOUS:'down', HIGH_VOL:'down', NO_TRADE:'down',
+    }[macro.regime || ''] || 'flat';
+    const rows = [];
+    const addMacroRow = (lbl, val, badge, bCls) => rows.push(`
+      <div class="sm-row">
+        <span class="sm-lbl">${lbl}</span>
+        <span class="sm-val">${val}${badge ? `<span class="sm-badge ${bCls||''}">${badge}</span>` : ''}</span>
+      </div>`);
+
+    addMacroRow('Regime',   macro.regime || '—',    macro.regime, regimeCls);
+    addMacroRow('VIX',      macro.vix != null       ? Number(macro.vix).toFixed(2)       : '—');
+    addMacroRow('10Y Yield',macro.yield_10y != null  ? Number(macro.yield_10y).toFixed(3) + '%' : '—');
+    addMacroRow('DXY',      macro.dxy != null        ? Number(macro.dxy).toFixed(2)       : '—');
+    if (macro.close)  addMacroRow('MES Price', Number(macro.close).toFixed(2));
+    if (macro.ema20)  addMacroRow('EMA20',     Number(macro.ema20).toFixed(2));
+    if (macro.adx != null) addMacroRow('ADX', Number(macro.adx).toFixed(1));
+    if (macro.rsi != null) addMacroRow('RSI', Number(macro.rsi).toFixed(1));
+    if (macro.pdh)    addMacroRow('PDH',  Number(macro.pdh).toFixed(2));
+    if (macro.pdl)    addMacroRow('PDL',  Number(macro.pdl).toFixed(2));
+    if (macro.vpoc_migration) addMacroRow('VPOC', macro.vpoc_migration);
+    addMacroRow('Session',  macro.session_open ? 'OPEN' : 'CLOSED',
+                macro.session_open ? 'OPEN' : null, macro.session_open ? 'up' : 'flat');
+
+    macroEl.innerHTML = rows.join('');
+  }
+
+  // ── Risk flags ─────────────────────────────────────────────────────────────
+  const rfEl = $('screener-risk-flags');
+  if (rfEl) {
+    if (!flags.length) {
+      rfEl.innerHTML = '<div class="rf-clear">✓ No active risk flags</div>';
+    } else {
+      rfEl.innerHTML = flags.map(f =>
+        `<div class="rf-item"><span class="rf-icon">⚠</span>${f}</div>`
+      ).join('');
+    }
+  }
+}
+
+// Poll screener when on the screener tab
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  if (btn.dataset.tab === 'screener') {
+    btn.addEventListener('click', fetchScreener);
+  }
+});
+setInterval(() => {
+  const active = document.querySelector('.tab-btn.active');
+  if (active?.dataset?.tab === 'screener') fetchScreener();
+}, SCREENER_POLL_MS);
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 initChart();
 connectWS();

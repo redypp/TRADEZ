@@ -23,6 +23,7 @@
     <button class="tab-btn active" data-tab="live">
       <span class="tab-dot" id="live-dot"></span>Live
     </button>
+    <button class="tab-btn" data-tab="screener">AI Screener</button>
     <button class="tab-btn" data-tab="strategies">Strategies</button>
     <button class="tab-btn" data-tab="methods">Methods</button>
     <button class="tab-btn" data-tab="lab">Lab</button>
@@ -246,6 +247,96 @@
   </div>
 
 </div><!-- /tab-live -->
+
+
+<!-- ══════════════════════════════════════ TAB: SCREENER -->
+<div id="tab-screener" class="tab-panel">
+
+  <!-- Bias Hero ────────────────────────────────────────────── -->
+  <div class="screener-hero" id="screener-hero">
+    <div class="sh-top">
+      <div class="sh-eyebrow">AI MARKET SCREENER</div>
+      <div class="sh-bias-wrap">
+        <div class="sh-bias-badge neutral" id="sh-bias-badge">NEUTRAL</div>
+        <div class="sh-conf-group">
+          <div class="sh-conf-label">Conviction</div>
+          <div class="sh-conf-bar-wrap">
+            <div class="sh-conf-bar" id="sh-conf-bar" style="width:0%"></div>
+          </div>
+          <div class="sh-conf-pct" id="sh-conf-pct">—%</div>
+        </div>
+      </div>
+      <div class="sh-headline" id="sh-headline">Awaiting LLM advisory…</div>
+      <div class="sh-brief" id="sh-brief"></div>
+      <div class="sh-meta">
+        <span id="sh-source" class="sh-meta-chip">—</span>
+        <span class="sh-sep">·</span>
+        <span id="sh-ts" class="sh-meta-ts">—</span>
+        <span id="sh-watchfor" class="sh-meta-watchfor"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3-column body ────────────────────────────────────────── -->
+  <div class="screener-body">
+
+    <!-- Col 1: Specialists -->
+    <div class="sc-col">
+      <div class="card sc-card">
+        <div class="card-head">AI SPECIALISTS</div>
+        <div id="specialists-list" class="specialists-list">
+          <div class="spec-waiting">LLM advisory not yet fired.<br>Triggers at pre-market and each signal check.</div>
+        </div>
+      </div>
+
+      <div class="card sc-card" style="margin-top:12px">
+        <div class="card-head">GATE STATUS</div>
+        <div id="gate-status-list" class="gate-status-list">
+          <div class="spec-waiting">Scheduler not running.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 2: Trade Watch + Opportunities -->
+    <div class="sc-col sc-col-center">
+      <div class="card sc-card">
+        <div class="card-head">
+          WHAT IT THINKS IT'LL TRADE
+          <span class="sh-live-dot" id="sh-live-dot"></span>
+        </div>
+        <div id="trade-watch-list" class="trade-watch-list">
+          <div class="tw-empty">No active setups.</div>
+        </div>
+      </div>
+
+      <div class="card sc-card" style="margin-top:12px">
+        <div class="card-head">OPPORTUNITIES</div>
+        <div id="opp-grid" class="opp-grid">
+          <div class="tw-empty">Scanning…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 3: Macro + Risk -->
+    <div class="sc-col">
+      <div class="card sc-card">
+        <div class="card-head">MACRO CONTEXT</div>
+        <div id="screener-macro" class="screener-macro">
+          <div class="spec-waiting">Awaiting data…</div>
+        </div>
+      </div>
+
+      <div class="card sc-card" style="margin-top:12px">
+        <div class="card-head">RISK FLAGS</div>
+        <div id="screener-risk-flags" class="risk-flags-list">
+          <div class="rf-clear">✓ No active risk flags</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /screener-body -->
+
+</div><!-- /tab-screener -->
 
 
 <!-- ══════════════════════════════════════ TAB: STRATEGIES -->

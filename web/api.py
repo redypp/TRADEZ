@@ -392,6 +392,172 @@ def api_lab_run(req: LabRunRequest):
     }
 
 
+@app.get("/api/screener")
+def api_screener():
+    """
+    AI Screener — aggregates LLM advisory, selector, regime, and live signals
+    into a single payload for the Screener tab.
+    """
+    import json as _json
+
+    state = get_bot_state()
+    if not state:
+        return {"available": False, "reason": "No bot state — run the scheduler first."}
+
+    # ── Advisory blob ──────────────────────────────────────────────────────────
+    advisory: dict = {}
+    raw = state.get("llm_advisory")
+    if raw:
+        try:
+            advisory = _json.loads(raw)
+        except Exception:
+            pass
+
+    # ── LLM selector + gate status (only available when scheduler is running) ──
+    selector: dict = {}
+    gate_status: dict = {}
+    try:
+        from monitor.llm_gate import get_llm_selection, get_status
+        selector   = get_llm_selection()
+        gate_status = get_status()
+    except Exception:
+        pass
+
+    # ── Regime / macro ────────────────────────────────────────────────────────
+    vix       = state.get("vix")
+    regime    = state.get("regime", "UNKNOWN")
+    yield_10y = state.get("yield_10y")
+    dxy       = state.get("dxy")
+
+    # ── Overall bias (prefer selector confidence, fall back to advisory quality) ──
+    bias_direction = (
+        advisory.get("sentiment")
+        or selector.get("bias")
+        or "NEUTRAL"
+    ).upper()
+
+    _quality_conf = {"HIGH": 0.82, "MEDIUM": 0.62, "LOW": 0.42, "N/A": 0.50}
+    bias_confidence = (
+        selector.get("confidence")
+        or _quality_conf.get(advisory.get("signal_quality", "N/A"), 0.50)
+    )
+
+    # ── Opportunity from current BRT signal ───────────────────────────────────
+    brt_state   = state.get("brt_state", "NEUTRAL")
+    watch_level = state.get("watch_level")
+    watch_ltype = state.get("watch_ltype")
+    sig_quality = advisory.get("signal_quality", "N/A")
+
+    opp_dir = "NEUTRAL"
+    if brt_state == "WATCHING_LONG":
+        opp_dir = "LONG"
+    elif brt_state == "WATCHING_SHORT":
+        opp_dir = "SHORT"
+
+    def _setup_note() -> str:
+        if brt_state == "WATCHING_LONG" and watch_level:
+            return f"Broke above {watch_ltype or 'level'} — watching retest at {watch_level:.2f}"
+        if brt_state == "WATCHING_SHORT" and watch_level:
+            return f"Broke below {watch_ltype or 'level'} — watching retest at {watch_level:.2f}"
+        return advisory.get("watch_for") or "Monitoring for institutional breakout"
+
+    opportunities = [
+        {
+            "strategy":   "BRT",
+            "symbol":     "MES",
+            "timeframe":  "15min",
+            "direction":  opp_dir,
+            "quality":    sig_quality,
+            "watch_level": watch_level,
+            "level_type": watch_ltype,
+            "regime":     regime,
+            "regime_ok":  regime not in ("NO_TRADE", "HIGH_VOL"),
+            "risk_flags": advisory.get("risk_flags", []),
+            "setup_note": _setup_note(),
+        }
+    ]
+
+    # ── Trade watch list ──────────────────────────────────────────────────────
+    trade_watch = []
+    if opp_dir in ("LONG", "SHORT") and watch_level:
+        trade_watch.append({
+            "priority":  1,
+            "symbol":    "MES",
+            "strategy":  "BRT",
+            "direction": opp_dir,
+            "trigger":   f"Retest of {watch_ltype or 'level'} @ {watch_level:.2f}",
+            "confidence": sig_quality,
+        })
+
+    sel_strategy = selector.get("strategy", "")
+    if sel_strategy and sel_strategy != "FLAT":
+        conf_raw = selector.get("confidence")
+        trade_watch.append({
+            "priority":  2,
+            "symbol":    "MES",
+            "strategy":  sel_strategy,
+            "direction": selector.get("bias", "NEUTRAL"),
+            "trigger":   selector.get("reasoning", "LLM selector recommendation")[:80]
+                         if selector.get("reasoning") else "LLM selector recommendation",
+            "confidence": f"{conf_raw:.0%}" if conf_raw else "—",
+        })
+
+    if not trade_watch:
+        trade_watch.append({
+            "priority":  1,
+            "symbol":    "MES",
+            "strategy":  "BRT",
+            "direction": "NEUTRAL",
+            "trigger":   "No active setup — waiting for price action",
+            "confidence": "—",
+        })
+
+    return {
+        "available": True,
+        "bias": {
+            "direction":  bias_direction,
+            "confidence": round(bias_confidence, 3),
+            "headline":   advisory.get("headline", "—"),
+            "brief":      advisory.get("brief", "—"),
+            "source":     "LLM" if advisory else "REGIME",
+            "timestamp":  advisory.get("timestamp") or state.get("updated_at", ""),
+            "watch_for":  advisory.get("watch_for", ""),
+        },
+        "specialists": {
+            "grok": {
+                "sentiment": advisory.get("grok_sentiment", "—"),
+                "summary":   advisory.get("grok_summary", ""),
+            },
+            "gpt4": {
+                "summary": advisory.get("gpt4_summary", ""),
+            },
+            "claude": {
+                "headline": advisory.get("headline", ""),
+                "brief":    advisory.get("brief", ""),
+            },
+            "selector": selector or None,
+        },
+        "opportunities": opportunities,
+        "trade_watch":   trade_watch,
+        "risk_flags":    advisory.get("risk_flags", []),
+        "macro": {
+            "vix":            vix,
+            "regime":         regime,
+            "yield_10y":      yield_10y,
+            "dxy":            dxy,
+            "vpoc_migration": state.get("vpoc_migration"),
+            "session_open":   bool(state.get("session_open")),
+            "adx":            state.get("adx"),
+            "rsi":            state.get("rsi"),
+            "close":          state.get("close"),
+            "ema20":          state.get("ema20"),
+            "pdh":            state.get("pdh"),
+            "pdl":            state.get("pdl"),
+        },
+        "gate_status": gate_status,
+    }
+
+
 @app.get("/api/settings")
 def api_settings():
     """Return current active BRT settings for dashboard display."""
