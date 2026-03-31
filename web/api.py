@@ -18,7 +18,11 @@ Run:
 """
 
 import asyncio
+import hashlib
+import logging
 import sys
+import threading
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -40,12 +44,246 @@ from data.trade_log import (
 )
 from strategy.regime import get_regime_info
 
+logger = logging.getLogger(__name__)
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="TRADEZ Dashboard", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 init_db()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCREENER BACKGROUND WORKERS
+# Runs independently of the main scheduler — the screener works even when
+# the trading bot is not running.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── LLM Specialist cache ──────────────────────────────────────────────────────
+_llm_spec_cache:   dict  = {}   # last advisory result from Grok+GPT4+Claude
+_llm_spec_ts:      float = 0.0  # unix time of last successful run
+_llm_spec_running: bool  = False
+_llm_spec_queued:  bool  = False  # True = run immediately on next cycle
+_LLM_SPEC_INTERVAL = 20 * 60     # auto-refresh every 20 minutes
+
+
+def _run_screener_llm_worker():
+    """
+    Daemon thread: fires the three-specialist LLM advisory pipeline (Grok →
+    GPT-4 → Claude) every 20 minutes — or immediately when _llm_spec_queued
+    is set.  Stores the result in _llm_spec_cache so the screener endpoint
+    can return it without blocking.
+    """
+    global _llm_spec_cache, _llm_spec_ts, _llm_spec_running, _llm_spec_queued
+
+    while True:
+        now = time.time()
+        due = (now - _llm_spec_ts) >= _LLM_SPEC_INTERVAL
+        if not (due or _llm_spec_queued):
+            time.sleep(15)
+            continue
+
+        _llm_spec_queued  = False
+        _llm_spec_running = True
+        try:
+            from data.fundamentals import get_live_fundamentals
+            from strategy.llm_advisory import _async_get_advisory
+
+            fundamentals = get_live_fundamentals()
+            mkt          = _fetch_mes_snapshot()
+            market_data  = {
+                **mkt,
+                "vix":          fundamentals.get("vix"),
+                "yield_10y":    fundamentals.get("yield_10y"),
+                "dxy":          fundamentals.get("dxy"),
+                "regime":       fundamentals.get("regime", "NORMAL"),
+                "spy_vol_ratio":fundamentals.get("spy_vol_ratio"),
+                "headwinds":    fundamentals.get("headwinds", []),
+                "tailwinds":    fundamentals.get("tailwinds", []),
+            }
+
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    _async_get_advisory(market_data, "BRT", "NEUTRAL", "SCREENER")
+                )
+            finally:
+                loop.close()
+
+            if result:
+                _llm_spec_cache = result
+                _llm_spec_ts    = time.time()
+                logger.info(
+                    f"[ScreenerLLM] Done — sentiment={result.get('sentiment')} "
+                    f"quality={result.get('signal_quality')}"
+                )
+
+        except Exception as e:
+            logger.error(f"[ScreenerLLM] Worker failed: {e}")
+        finally:
+            _llm_spec_running = False
+
+        time.sleep(30)  # check again in 30s
+
+
+# ── News scraper cache ────────────────────────────────────────────────────────
+_news_items:    list  = []   # list of {source, headline, impact, direction, ts, link}
+_news_lock             = threading.Lock()
+_news_seen_hashes: set = set()
+_news_grok_ts:  float  = 0.0
+_NEWS_RSS_INTERVAL  = 60    # seconds between RSS polls
+_NEWS_GROK_INTERVAL = 180   # seconds between Grok breaking-news checks
+_NEWS_MAX_ITEMS     = 50
+
+RSS_FEEDS = [
+    ("Reuters",    "https://feeds.reuters.com/reuters/businessNews"),
+    ("CNBC",       "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("MarketWatch","https://feeds.marketwatch.com/marketwatch/topstories/"),
+    ("Investing",  "https://www.investing.com/rss/news.rss"),
+    ("Yahoo Fin",  "https://finance.yahoo.com/news/rssindex"),
+]
+
+_HIGH_KW = [
+    "fomc","federal reserve","rate cut","rate hike","cpi","pce","nfp","jobs report",
+    "gdp","inflation","war","attack","sanctions","default","circuit breaker",
+    "trading halt","bankruptcy","collapse","tariff","executive order","flash crash",
+]
+_MED_KW = [
+    "earnings","fed speaker","powell","jobless","pmi","ism","layoffs","oil","opec",
+    "recession","ipo","profit warning","guidance","consumer confidence","gdp",
+]
+
+def _impact_score(text: str) -> str:
+    t = text.lower()
+    for kw in _HIGH_KW:
+        if kw in t: return "HIGH"
+    for kw in _MED_KW:
+        if kw in t: return "MEDIUM"
+    return "LOW"
+
+def _hsh(s: str) -> str:
+    return hashlib.md5(s.lower().strip().encode()).hexdigest()[:10]
+
+
+def _fetch_rss_batch() -> list[dict]:
+    try:
+        import feedparser
+    except ImportError:
+        return []
+    items = []
+    for source, url in RSS_FEEDS:
+        try:
+            feed = feedparser.parse(url)
+            for e in feed.entries[:6]:
+                hl = (e.get("title") or "").strip()
+                if not hl:
+                    continue
+                h = _hsh(hl)
+                if h in _news_seen_hashes:
+                    continue
+                _news_seen_hashes.add(h)
+                impact = _impact_score(hl + " " + (e.get("summary") or ""))
+                items.append({
+                    "source":  source,
+                    "headline": hl,
+                    "link":    e.get("link", ""),
+                    "impact":  impact,
+                    "direction": None,
+                    "ts":      datetime.now(timezone.utc).isoformat(),
+                })
+        except Exception:
+            pass
+    return items
+
+
+def _grok_breaking_news() -> Optional[dict]:
+    """Ask Grok: anything break in the last 5 min that moves ES?"""
+    try:
+        from config import settings
+        import openai, json as _j, re as _re
+        api_key = getattr(settings, "XAI_API_KEY", "") or ""
+        if not api_key:
+            return None
+        prompt = (
+            "You are a real-time market scanner for a futures trader.\n"
+            "Scan X/Twitter and news RIGHT NOW for anything that broke in the LAST 5 MINUTES "
+            "that could immediately move ES/SPX futures.\n"
+            "High priority: FOMC surprise, major M&A, geopolitical shock, flash crash, CPI/NFP miss, "
+            "large earnings miss, regulatory ruling.\n"
+            "If NOTHING notable in last 5 min respond exactly: "
+            '{\"impact\":\"NONE\",\"headline\":\"\",\"summary\":\"\",\"direction\":\"NEUTRAL\"}\n'
+            "If something broke: "
+            '{\"impact\":\"HIGH|MEDIUM\",\"headline\":\"<70 chars>\",\"summary\":\"<2 sentences>\","
+            '"direction\":\"BULLISH|BEARISH|NEUTRAL\"}'
+        )
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+        resp = client.chat.completions.create(
+            model="grok-3-mini", temperature=0.1, max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=12,
+        )
+        text = resp.choices[0].message.content or ""
+        text = _re.sub(r"```(?:json)?", "", text).strip()
+        m = _re.search(r"\{.*\}", text, _re.DOTALL)
+        if m:
+            d = _j.loads(m.group())
+            if d.get("impact") in ("HIGH", "MEDIUM") and d.get("headline"):
+                return {
+                    "source":   "Grok · X/Twitter",
+                    "headline": d["headline"],
+                    "link":     "",
+                    "impact":   d["impact"],
+                    "direction": d.get("direction", "NEUTRAL"),
+                    "summary":  d.get("summary", ""),
+                    "ts":       datetime.now(timezone.utc).isoformat(),
+                }
+    except Exception as e:
+        logger.debug(f"[ScreenerNews] Grok check failed: {e}")
+    return None
+
+
+def _run_news_scraper_worker():
+    """Daemon thread: polls RSS every 60s + Grok every 3 min for breaking news."""
+    global _news_grok_ts
+    last_rss = 0.0
+
+    while True:
+        now = time.time()
+
+        # RSS poll
+        if now - last_rss >= _NEWS_RSS_INTERVAL:
+            try:
+                new_items = _fetch_rss_batch()
+                if new_items:
+                    with _news_lock:
+                        _news_items[:0] = new_items
+                        del _news_items[_NEWS_MAX_ITEMS:]
+                    logger.debug(f"[ScreenerNews] +{len(new_items)} RSS items")
+            except Exception as e:
+                logger.debug(f"[ScreenerNews] RSS error: {e}")
+            last_rss = now
+
+        # Grok breaking news
+        if now - _news_grok_ts >= _NEWS_GROK_INTERVAL:
+            try:
+                item = _grok_breaking_news()
+                if item:
+                    with _news_lock:
+                        _news_items.insert(0, item)
+                        del _news_items[_NEWS_MAX_ITEMS:]
+                    logger.info(f"[ScreenerNews] Grok: {item['impact']} — {item['headline'][:60]}")
+            except Exception as e:
+                logger.debug(f"[ScreenerNews] Grok worker error: {e}")
+            _news_grok_ts = now
+
+        time.sleep(10)
+
+
+# ── Start background workers when API boots ───────────────────────────────────
+threading.Thread(target=_run_screener_llm_worker,  daemon=True, name="screener-llm").start()
+threading.Thread(target=_run_news_scraper_worker,  daemon=True, name="screener-news").start()
+logger.info("[Screener] Background workers started (LLM + News)")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -741,11 +979,28 @@ def api_screener():
             "timestamp":  advisory.get("timestamp") or datetime.now(timezone.utc).isoformat(),
             "watch_for":  advisory.get("watch_for", ""),
         },
+        # Merge scheduler advisory + screener LLM cache (prefer whichever is newer)
+        _merged_adv = _llm_spec_cache if _llm_spec_cache else advisory
         "specialists": {
-            "grok":   {"sentiment": advisory.get("grok_sentiment", ""), "summary": advisory.get("grok_summary", "")},
-            "gpt4":   {"summary": advisory.get("gpt4_summary", "")},
-            "claude": {"headline": advisory.get("headline", ""), "brief": advisory.get("brief", "")},
-            "selector": selector or None,
+            "grok": {
+                "sentiment": _merged_adv.get("sentiment", advisory.get("grok_sentiment", "")),
+                "summary":   _merged_adv.get("grok_summary", advisory.get("grok_summary", "")),
+            },
+            "gpt4": {
+                "summary":       _merged_adv.get("gpt4_summary", advisory.get("gpt4_summary", "")),
+                "signal_quality":_merged_adv.get("signal_quality", ""),
+                "watch_for":     _merged_adv.get("watch_for", ""),
+                "macro_supports":_merged_adv.get("macro_supports"),
+            },
+            "claude": {
+                "headline": _merged_adv.get("headline", ""),
+                "brief":    _merged_adv.get("brief", ""),
+                "risk_flags":_merged_adv.get("risk_flags", []),
+            },
+            "selector":  selector or None,
+            "llm_running": _llm_spec_running,
+            "llm_last_run": datetime.fromtimestamp(_llm_spec_ts, tz=timezone.utc).isoformat()
+                            if _llm_spec_ts else None,
         },
         "opportunities": opportunities,
         "trade_watch":   trade_watch,
@@ -785,6 +1040,32 @@ def api_screener_refresh():
     _screener_cache    = {}
     _screener_cache_ts = 0.0
     return {"cleared": True}
+
+
+@app.post("/api/screener/analyze")
+def api_screener_analyze():
+    """
+    Queue an immediate LLM specialist run (Grok + GPT-4 + Claude).
+    Returns immediately — poll /api/screener for results.
+    """
+    global _llm_spec_queued
+    if _llm_spec_running:
+        return {"queued": False, "reason": "Already running"}
+    _llm_spec_queued = True
+    return {"queued": True}
+
+
+@app.get("/api/screener/news")
+def api_screener_news(limit: int = 30):
+    """Live news feed — RSS + Grok breaking news items."""
+    with _news_lock:
+        items = list(_news_items[:limit])
+    return {
+        "items":      items,
+        "count":      len(items),
+        "grok_last":  datetime.fromtimestamp(_news_grok_ts, tz=timezone.utc).isoformat()
+                      if _news_grok_ts else None,
+    }
 
 
 @app.get("/api/settings")

@@ -286,9 +286,16 @@
     <!-- Col 1: Specialists -->
     <div class="sc-col">
       <div class="card sc-card">
-        <div class="card-head">AI SPECIALISTS</div>
+        <div class="card-head">
+          AI SPECIALISTS
+          <button class="spec-analyze-btn" id="spec-analyze-btn" onclick="screenerAnalyze()">▶ Analyze Now</button>
+        </div>
+        <div id="spec-status-bar" class="spec-status-bar" style="display:none">
+          <span class="spec-spinner">⟳</span> Running Grok · GPT-4 · Claude…
+        </div>
+        <div id="spec-last-run" class="spec-last-run"></div>
         <div id="specialists-list" class="specialists-list">
-          <div class="spec-waiting">LLM advisory not yet fired.<br>Triggers at pre-market and each signal check.</div>
+          <div class="spec-waiting">Press <strong>▶ Analyze Now</strong> to fire the AI specialists.<br>Auto-runs every 20 minutes.</div>
         </div>
       </div>
 
@@ -338,6 +345,19 @@
     </div>
 
   </div><!-- /screener-body -->
+
+  <!-- Live News Feed ───────────────────────────────────────── -->
+  <div class="news-feed-section">
+    <div class="nf-header">
+      <span class="nf-title">LIVE MARKET FEED</span>
+      <span class="nf-live-dot"></span>
+      <span class="nf-sub">RSS · Grok · X/Twitter — updates every 60s</span>
+      <span id="nf-grok-ts" class="nf-grok-ts"></span>
+    </div>
+    <div id="news-feed-list" class="news-feed-list">
+      <div class="nf-loading">Fetching live feed…</div>
+    </div>
+  </div>
 
 </div><!-- /tab-screener -->
 

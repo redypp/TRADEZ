@@ -996,6 +996,92 @@ async function screenerRefresh() {
   }
 }
 
+async function screenerAnalyze() {
+  const btn = $('spec-analyze-btn');
+  const bar = $('spec-status-bar');
+  if (btn) { btn.disabled = true; btn.textContent = '⟳ Queued…'; }
+  if (bar) bar.style.display = 'flex';
+  try {
+    await fetch('/api/screener/analyze', { method: 'POST' });
+    // Poll until llm_running goes false
+    let attempts = 0;
+    const poll = setInterval(async () => {
+      attempts++;
+      try {
+        const r  = await fetch('/api/screener');
+        const d  = await r.json();
+        const running = d?.specialists?.llm_running;
+        if (!running || attempts > 30) {
+          clearInterval(poll);
+          renderScreener(d);
+          if (bar) bar.style.display = 'none';
+          if (btn) { btn.disabled = false; btn.textContent = '▶ Analyze Now'; }
+        }
+      } catch { clearInterval(poll); }
+    }, 3000);
+  } catch {
+    if (bar) bar.style.display = 'none';
+    if (btn) { btn.disabled = false; btn.textContent = '▶ Analyze Now'; }
+  }
+}
+
+// ── News Feed ─────────────────────────────────────────────────────────────────
+const NEWS_POLL_MS = 60_000;
+
+async function fetchNews() {
+  try {
+    const r = await fetch('/api/screener/news?limit=40');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderNews(data);
+  } catch { /* silent */ }
+}
+
+function renderNews(data) {
+  const list = $('news-feed-list');
+  if (!list) return;
+
+  const items = data?.items || [];
+  const grokTs = data?.grok_last;
+
+  const tsEl = $('nf-grok-ts');
+  if (tsEl && grokTs) tsEl.textContent = `Grok checked ${relTime(grokTs)}`;
+
+  if (!items.length) {
+    list.innerHTML = '<div class="nf-loading">Fetching live feed — check back in ~60s…</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(item => {
+    const impact  = (item.impact || 'LOW').toUpperCase();
+    const isGrok  = item.source?.toLowerCase().includes('grok');
+    const cardCls = isGrok ? 'impact-grok' : `impact-${impact.toLowerCase()}`;
+    const badgeCls = isGrok ? 'grok' : impact.toLowerCase();
+    const badgeLbl = isGrok ? 'GROK' : impact;
+
+    const dir    = (item.direction || 'NEUTRAL').toUpperCase();
+    const dirCls = { BULLISH:'bullish', BEARISH:'bearish' }[dir] || 'neutral';
+    const dirLbl = { BULLISH:'▲ BULL', BEARISH:'▼ BEAR' }[dir] || '';
+    const showDir = dir !== 'NEUTRAL' && dirLbl;
+
+    const hl = item.link
+      ? `<a href="${item.link}" target="_blank" rel="noopener">${item.headline}</a>`
+      : item.headline;
+
+    return `
+      <div class="nf-item ${cardCls}">
+        <div class="nf-top">
+          <span class="nf-source">${item.source || '—'}</span>
+          <span class="nf-impact-badge ${badgeCls}">${badgeLbl}</span>
+          ${showDir ? `<span class="nf-dir-badge ${dirCls}">${dirLbl}</span>` : ''}
+        </div>
+        <div class="nf-headline">${hl}</div>
+        ${item.summary ? `<div class="nf-summary">${item.summary}</div>` : ''}
+        <div class="nf-ts">${relTime(item.ts)}</div>
+      </div>`;
+  }).join('');
+}
+
 function renderScreener(d) {
   if (!d?.available) return;
 
@@ -1041,12 +1127,28 @@ function renderScreener(d) {
   if (asofEl && d.as_of) asofEl.textContent = `Data as of ${relTime(d.as_of)} · refreshes every 45s`;
 
   // ── Specialists ────────────────────────────────────────────────────────────
+  const specBar      = $('spec-status-bar');
+  const specLastRun  = $('spec-last-run');
+  const specAnalyzeBtn = $('spec-analyze-btn');
+
+  // Running indicator
+  if (specBar) specBar.style.display = specs.llm_running ? 'flex' : 'none';
+  if (specAnalyzeBtn) specAnalyzeBtn.disabled = !!specs.llm_running;
+
+  // Last run timestamp
+  if (specLastRun) {
+    specLastRun.textContent = specs.llm_last_run
+      ? `Last analysis: ${relTime(specs.llm_last_run)}`
+      : 'Not yet run — press Analyze Now';
+  }
+
   const specList = $('specialists-list');
   if (specList) {
     const rows = [];
+    const hasAny = specs.grok?.summary || specs.gpt4?.summary || specs.claude?.brief;
 
     if (specs.grok?.summary) {
-      const grokSent = (specs.grok.sentiment || '—').toUpperCase();
+      const grokSent = (specs.grok.sentiment || 'NEUTRAL').toUpperCase();
       const grokCls  = { BULLISH:'bullish', BEARISH:'bearish', NEUTRAL:'neutral' }[grokSent] || 'neutral';
       rows.push(`
         <div class="spec-item">
@@ -1061,30 +1163,40 @@ function renderScreener(d) {
     }
 
     if (specs.gpt4?.summary) {
+      const q = specs.gpt4.signal_quality || '';
+      const qCls = { HIGH:'spec-badge bullish', MEDIUM:'spec-badge neutral', LOW:'spec-badge bearish', 'N/A':'' }[q] || '';
+      const macroOk = specs.gpt4.macro_supports;
       rows.push(`
         <div class="spec-item">
           <div class="spec-header">
             <span class="spec-logo gpt4">GPT-4</span>
+            ${q ? `<span class="${qCls}">${q}</span>` : ''}
             <span style="font-size:9px;color:var(--text3);margin-left:4px">MACRO · QUANT</span>
+            ${macroOk != null ? `<span style="font-size:9px;margin-left:auto;color:${macroOk ? 'var(--green)' : 'var(--red)'}">${macroOk ? '✓ Macro ok' : '✗ Macro headwind'}</span>` : ''}
           </div>
           <div class="spec-text">${specs.gpt4.summary}</div>
+          ${specs.gpt4.watch_for && specs.gpt4.watch_for !== 'n/a'
+            ? `<div class="spec-text" style="color:var(--amber);margin-top:3px">👁 ${specs.gpt4.watch_for}</div>` : ''}
         </div>`);
       rows.push('<div class="spec-divider"></div>');
     }
 
     if (specs.claude?.brief) {
+      const clauseFlags = specs.claude.risk_flags || [];
       rows.push(`
         <div class="spec-item">
           <div class="spec-header">
             <span class="spec-logo claude">CLAUDE</span>
             <span style="font-size:9px;color:var(--text3);margin-left:4px">SYNTHESIS</span>
           </div>
+          ${specs.claude.headline ? `<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">${specs.claude.headline}</div>` : ''}
           <div class="spec-text">${specs.claude.brief}</div>
+          ${clauseFlags.length ? clauseFlags.map(f => `<div class="spec-text" style="color:var(--red);margin-top:3px">⚠ ${f}</div>`).join('') : ''}
         </div>`);
       rows.push('<div class="spec-divider"></div>');
     }
 
-    if (specs.selector) {
+    if (specs.selector?.strategy) {
       const sel = specs.selector;
       const selConf = sel.confidence != null ? `${Math.round(sel.confidence * 100)}%` : '—';
       rows.push(`
@@ -1093,14 +1205,15 @@ function renderScreener(d) {
             <span class="spec-logo sel">SELECTOR</span>
             <span style="font-size:9px;color:var(--text3);margin-left:4px">STRATEGY GATE</span>
           </div>
-          <div class="spec-text">Strategy: <strong>${sel.strategy || '—'}</strong> · Bias: ${sel.bias || '—'} · Conf: ${selConf}</div>
+          <div class="spec-text">Strategy: <strong>${sel.strategy}</strong> · Bias: ${sel.bias || '—'} · Conf: ${selConf}</div>
         </div>`);
     }
 
-    if (rows.length === 0) {
-      specList.innerHTML = '<div class="spec-waiting">LLM advisory not yet fired.<br>Triggers at pre-market and each signal check.</div>';
+    if (!hasAny) {
+      specList.innerHTML = specs.llm_running
+        ? '<div class="spec-waiting">Analysis in progress…</div>'
+        : '<div class="spec-waiting">Press <strong>▶ Analyze Now</strong> to fire the AI specialists.<br>Auto-runs every 20 minutes.</div>';
     } else {
-      // remove trailing divider
       while (rows.length && rows[rows.length - 1].includes('spec-divider')) rows.pop();
       specList.innerHTML = rows.join('');
     }
@@ -1268,16 +1381,23 @@ function renderScreener(d) {
   }
 }
 
-// Poll screener when on the screener tab
+// Poll screener + news when on the screener tab
 document.querySelectorAll('.tab-btn').forEach(btn => {
   if (btn.dataset.tab === 'screener') {
-    btn.addEventListener('click', fetchScreener);
+    btn.addEventListener('click', () => {
+      fetchScreener();
+      fetchNews();
+    });
   }
 });
 setInterval(() => {
   const active = document.querySelector('.tab-btn.active');
   if (active?.dataset?.tab === 'screener') fetchScreener();
 }, SCREENER_POLL_MS);
+setInterval(() => {
+  const active = document.querySelector('.tab-btn.active');
+  if (active?.dataset?.tab === 'screener') fetchNews();
+}, NEWS_POLL_MS);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 initChart();
