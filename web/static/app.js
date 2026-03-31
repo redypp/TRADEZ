@@ -62,8 +62,16 @@ function activateTab(tabId) {
   const panel = $(`tab-${tabId}`);
   if (panel) panel.classList.add('active');
   if (tabId === 'journal') renderJournal(window._lastTrades);
-  if (tabId === 'screener') { fetchScreener(); fetchNews(); }
-  if (tabId === 'swing') { fetchSwingScreener(); fetchSwingLLMIdeas(); }
+  if (tabId === 'screener') {
+    const activeStrat = $('strategy-tab-btn')?.dataset?.tab || 'brt';
+    if (activeStrat === 'swing') {
+      fetchSwingScreener();
+      fetchSwingLLMIdeas();
+    } else {
+      fetchScreener();
+      fetchNews();
+    }
+  }
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -88,6 +96,13 @@ function switchStrategyTab(tabId, label) {
   const ticker = $('tb-ticker');
   if (ticker) {
     ticker.textContent = tabId === 'swing' ? 'US EQUITIES · SWING' : 'MES · BRT';
+  }
+  // Toggle AI Screener view to match strategy
+  const brtView   = $('screener-brt-view');
+  const swingView = $('screener-swing-view');
+  if (brtView && swingView) {
+    brtView.style.display   = tabId === 'swing' ? 'none'  : '';
+    swingView.style.display = tabId === 'swing' ? ''      : 'none';
   }
   activateTab(tabId);
 }
