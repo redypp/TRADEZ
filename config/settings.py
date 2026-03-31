@@ -140,8 +140,12 @@ SYMBOL_STRATEGY = {
 # ACTIVE_SYMBOLS — master list of symbols the orchestrator evaluates each tick.
 #   A symbol is only traded if at least one enabled strategy lists it here.
 #
+# BRT requires Tradovate credentials — auto-disable if creds are missing
+_tradovate_creds_set = bool(
+    os.getenv("TRADOVATE_USERNAME") and os.getenv("TRADOVATE_PASSWORD") and os.getenv("TRADOVATE_APP_ID")
+)
 STRATEGY_ENABLED = {
-    "BRT":      os.getenv("STRATEGY_BRT_ENABLED",      "true").lower()  == "true",
+    "BRT":      os.getenv("STRATEGY_BRT_ENABLED",      "false").lower() == "true" and _tradovate_creds_set,
     "SWING":    os.getenv("STRATEGY_SWING_ENABLED",    "false").lower() == "true",
     "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_ENABLED",  "false").lower() == "true",
     "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_ENABLED",  "false").lower() == "true",
