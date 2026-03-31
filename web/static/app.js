@@ -84,6 +84,11 @@ function switchStrategyTab(tabId, label) {
   // Update the single Strategy nav button to point at the chosen panel
   const stratBtn = $('strategy-tab-btn');
   if (stratBtn) stratBtn.dataset.tab = tabId;
+  // Update topbar ticker to reflect active strategy instrument
+  const ticker = $('tb-ticker');
+  if (ticker) {
+    ticker.textContent = tabId === 'swing' ? 'US EQUITIES · SWING' : 'MES · BRT';
+  }
   activateTab(tabId);
 }
 

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=7"/>
+  <link rel="stylesheet" href="/static/style.css?v=8"/>
 </head>
 <body>
 
@@ -16,7 +16,7 @@
   <div class="tb-brand">
     <div class="tb-logo"></div>
     <span class="tb-name">TRADEZ</span>
-    <span class="tb-ticker">MES · BRT</span>
+    <span class="tb-ticker" id="tb-ticker">MES · BRT</span>
   </div>
 
   <nav class="tb-tabs">
@@ -64,7 +64,7 @@
   <!-- Regime banner -->
   <div id="regime-bar" class="regime-bar">
     <div class="rb-left">
-      <span class="rb-eyebrow">ACTIVE REGIME</span>
+      <span class="rb-eyebrow">MES FUTURES · BREAK &amp; RETEST</span>
       <span id="rb-name" class="rb-name">—</span>
     </div>
     <div class="rb-center">
@@ -176,7 +176,7 @@
   <div class="live-lower">
 
     <div class="card levels-card">
-      <div class="card-head">KEY LEVELS</div>
+      <div class="card-head">KEY LEVELS <span class="card-head-sub">MES only</span></div>
       <table class="levels-table">
         <thead>
           <tr><th>Level</th><th>Type</th><th>Price</th><th></th><th>Dist</th></tr>
@@ -403,7 +403,7 @@
   <!-- Regime banner (same layout as BRT) -->
   <div id="swing-regime-bar" class="regime-bar">
     <div class="rb-left">
-      <span class="rb-eyebrow">ACTIVE REGIME</span>
+      <span class="rb-eyebrow">US EQUITIES · MOMENTUM SWING</span>
       <span id="sw-rb-name" class="rb-name">—</span>
     </div>
     <div class="rb-center">
@@ -471,8 +471,15 @@
   <!-- LLM Swing Scout ideas -->
   <div class="card" style="margin-top:12px">
     <div class="card-head">
-      LLM SWING SCOUT · CATALYST IDEAS
+      LLM SWING SCOUT
       <span id="llm-scout-badge" class="filter-summary"></span>
+      <span class="card-head-pillars">
+        <span class="chp chp-tech">TECHNICAL</span>
+        <span class="chp-sep">·</span>
+        <span class="chp chp-fund">FUNDAMENTAL</span>
+        <span class="chp-sep">·</span>
+        <span class="chp chp-analyst">ANALYST + OPTIONS</span>
+      </span>
       <span id="llm-scout-ts" style="margin-left:auto;font-size:11px;color:var(--text3)"></span>
     </div>
     <div id="swing-llm-ideas-body">
@@ -483,7 +490,17 @@
   <!-- Screener + sidebar -->
   <div class="live-lower" style="margin-top:12px">
     <div class="card" style="flex:2">
-      <div class="card-head">SCREENER · TODAY'S SETUPS <span id="swing-setup-count" class="filter-summary"></span></div>
+      <div class="card-head">
+        TECHNICAL SCREENER
+        <span id="swing-setup-count" class="filter-summary"></span>
+        <span class="card-head-pillars">
+          <span class="chp chp-tech">CONSOLIDATION &amp; BREAKOUT</span>
+          <span class="chp-sep">·</span>
+          <span class="chp chp-fund">FUNDAMENTALS &amp; CATALYSTS</span>
+          <span class="chp-sep">·</span>
+          <span class="chp chp-analyst">ANALYST OUTLOOK</span>
+        </span>
+      </div>
       <div id="swing-screener-body">
         <div class="swing-empty">Scanning universe… setups will appear here.</div>
       </div>
@@ -622,7 +639,7 @@
 </div><!-- /tab-stack -->
 
 
-<script src="/static/app.js?v=7"></script>
+<script src="/static/app.js?v=8"></script>
 
 <script>
 // ── Pine Script source (stored in JS to avoid HTML-escaping issues) ─────────
