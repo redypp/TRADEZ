@@ -63,7 +63,7 @@ function activateTab(tabId) {
   if (panel) panel.classList.add('active');
   if (tabId === 'journal') renderJournal(window._lastTrades);
   if (tabId === 'screener') { fetchScreener(); fetchNews(); }
-  if (tabId === 'swing') fetchSwingScreener();
+  if (tabId === 'swing') { fetchSwingScreener(); fetchSwingLLMIdeas(); }
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1159,6 +1159,58 @@ function renderSwingScreener(d) {
           <div class="swing-level-item"><span class="sl-lbl">TP2 ${tp2R}</span><span class="sl-val target">${s.tp2?.toFixed(2) ?? '—'}</span></div>
           <div class="swing-level-item"><span class="sl-lbl">RSI</span><span class="sl-val">${s.rsi?.toFixed(1) ?? '—'}</span></div>
           <div class="swing-level-item"><span class="sl-lbl">Risk %</span><span class="sl-val">${risk}%</span></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── LLM Swing Scout ──────────────────────────────────────────────────────────
+async function fetchSwingLLMIdeas() {
+  try {
+    const r = await fetch('/api/swing/llm-ideas');
+    if (!r.ok) return;
+    const d = await r.json();
+    renderSwingLLMIdeas(d);
+  } catch { /* silent */ }
+}
+
+function renderSwingLLMIdeas(d) {
+  const body  = $('swing-llm-ideas-body');
+  const badge = $('llm-scout-badge');
+  const ts    = $('llm-scout-ts');
+  if (!body) return;
+
+  const ideas = d?.top_ideas || [];
+  const note  = d?.market_note || '';
+
+  if (badge) badge.textContent = ideas.length ? `· ${ideas.length} idea${ideas.length > 1 ? 's' : ''}` : '';
+  if (ts && d?.timestamp) ts.textContent = `Last scan: ${d.timestamp}`;
+
+  if (!ideas.length) {
+    body.innerHTML = '<div class="swing-empty">LLM scan runs at 16:05 ET — catalyst ideas will appear here.</div>';
+    return;
+  }
+
+  const noteHtml = note
+    ? `<div class="llm-market-note"><span class="lmn-icon">🌐</span><span>${note}</span></div>` : '';
+
+  body.innerHTML = noteHtml + ideas.map(idea => {
+    const tierCls = idea.conviction_tier === 'HIGH' ? 'quality-high' : 'quality-medium';
+    const conf    = idea.confidence != null ? Math.round(idea.confidence * 100) + '%' : '—';
+    return `
+      <div class="swing-setup-row ${tierCls}">
+        <div class="swing-row-top">
+          <span class="swing-symbol">${idea.symbol}</span>
+          <span class="swing-type-badge" style="background:var(--blue);color:#fff">${idea.conviction_tier ?? '—'}</span>
+          <span class="swing-quality ${tierCls}">${conf} conf</span>
+          <span class="swing-rr" style="color:var(--text2);font-size:11px">${idea.catalyst ?? ''}</span>
+        </div>
+        <div class="llm-idea-body">
+          <div class="lib-thesis">${idea.thesis ?? ''}</div>
+          <div class="lib-meta">
+            <span class="lib-item"><span class="lib-lbl">Entry</span><span class="lib-val">${idea.entry_note ?? '—'}</span></span>
+            <span class="lib-item"><span class="lib-lbl">Risk</span><span class="lib-val">${idea.key_risk ?? '—'}</span></span>
+          </div>
         </div>
       </div>`;
   }).join('');

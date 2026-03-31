@@ -1153,6 +1153,39 @@ def api_swing_screener():
                 "as_of": datetime.now(timezone.utc).isoformat()}
 
 
+@app.get("/api/swing/llm-ideas")
+def api_swing_llm_ideas():
+    """
+    Return the latest LLM swing scout results (Grok → GPT-4 → Claude pipeline).
+    Reads from bot_state["swing_scout"] — populated by run_eod_swing_scan().
+    Falls back to empty result if no scan has run yet.
+    Cached for 10 minutes (same TTL as screener).
+    """
+    import time as _time
+    import json as _json
+    cache = getattr(api_swing_llm_ideas, "_cache", None)
+    cache_ts = getattr(api_swing_llm_ideas, "_cache_ts", 0)
+    if cache is not None and (_time.time() - cache_ts) < 600:
+        return cache
+    try:
+        state = get_bot_state()
+        raw = state.get("swing_scout") if state else None
+        if raw:
+            result = _json.loads(raw)
+        else:
+            result = {
+                "top_ideas": [], "rejected": [], "market_note": "",
+                "market_bias": "NEUTRAL", "avoid_sectors": [],
+                "timestamp": None, "vix": None,
+            }
+        api_swing_llm_ideas._cache    = result
+        api_swing_llm_ideas._cache_ts = _time.time()
+        return result
+    except Exception as e:
+        logger.error(f"[SwingLLMIdeas] {e}")
+        return {"top_ideas": [], "market_note": "", "error": str(e)}
+
+
 @app.get("/api/strategy/status")
 def api_strategy_status():
     """

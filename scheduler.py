@@ -578,6 +578,8 @@ def run_eod_swing_scan() -> None:
 
     Scans the full Momentum Swing universe, runs prepare() + get_signal()
     for each symbol, and places bracket orders via Alpaca for any valid setups.
+    Also runs the proactive LLM swing scout (Grok → GPT-4 → Claude) to find
+    catalyst-driven ideas and stores them in bot_state for the dashboard.
     Only runs if STRATEGY_SWING_ENABLED=true.
     """
     if not settings.STRATEGY_ENABLED.get("SWING", False):
@@ -592,9 +594,9 @@ def run_eod_swing_scan() -> None:
             logger.warning("EOD swing: could not read equity — skipping")
             return
 
-        fundamentals  = _safe_get_fundamentals()
+        fundamentals  = get_live_fundamentals()
         regime_info   = get_regime_info(fundamentals.get("vix"))
-        regime_params = regime_info.get("params", {})
+        regime_params = get_regime_params(fundamentals.get("vix"))
 
         _session["start_equity"] = _session.get("start_equity") or equity
 
@@ -623,6 +625,37 @@ def run_eod_swing_scan() -> None:
                 pass
         else:
             logger.info("EOD swing: no setups met criteria today")
+
+        # ── LLM Swing Scout (proactive catalyst ideas) ────────────────────
+        # Runs Grok → GPT-4 → Claude in sequence to identify catalyst-driven
+        # long swing ideas. Results stored in bot_state for dashboard display.
+        try:
+            import json as _json
+            from strategy.llm_swing_scout import run_swing_scout
+            logger.info("[SwingScout] Running proactive LLM opportunity scan…")
+            scout_result = run_swing_scout({
+                "vix":       fundamentals.get("vix", 18.0),
+                "dxy":       fundamentals.get("dxy", 104.0),
+                "yield_10y": fundamentals.get("yield_10y", 4.3),
+            })
+            update_bot_state({"swing_scout": _json.dumps(scout_result)})
+            top_count = len(scout_result.get("top_ideas", []))
+            logger.info(f"[SwingScout] {top_count} top idea(s) stored in bot_state")
+            if top_count > 0:
+                try:
+                    from monitor.alerts import send_telegram
+                    lines = [f"🤖 *LLM Swing Scout* — {top_count} opportunity(ies) identified"]
+                    lines.append(scout_result.get("market_note", ""))
+                    for idea in scout_result.get("top_ideas", []):
+                        lines.append(
+                            f"  • *{idea['symbol']}* [{idea.get('conviction_tier','?')}] "
+                            f"{idea.get('thesis','')}"
+                        )
+                    send_telegram("\n".join(lines))
+                except Exception:
+                    pass
+        except Exception as scout_err:
+            logger.warning(f"[SwingScout] non-fatal failure: {scout_err}")
 
     except Exception as e:
         logger.error(f"EOD swing scan failed: {e}", exc_info=True)

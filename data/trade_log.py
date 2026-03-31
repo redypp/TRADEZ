@@ -121,6 +121,7 @@ def init_db() -> None:
             ("vpoc_migration",     "TEXT"),   # "RISING" / "FALLING" / "NEUTRAL"
             ("llm_advisory",       "TEXT"),   # JSON blob from AI advisory engine
             ("screener_advisory",  "TEXT"),   # JSON blob from dashboard screener LLM worker
+            ("swing_scout",        "TEXT"),   # JSON blob from proactive LLM swing scout
         ]:
             if col not in state_cols:
                 conn.execute(f"ALTER TABLE bot_state ADD COLUMN {col} {typedef}")
