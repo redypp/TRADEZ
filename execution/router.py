@@ -59,6 +59,7 @@ INSTRUMENT_BROKER_MAP: dict[str, str] = {
     "SLV":  "alpaca",
     "TLT":  "alpaca",
     "USO":  "alpaca",
+    # Mega-cap tech
     "AAPL": "alpaca",
     "MSFT": "alpaca",
     "TSLA": "alpaca",
@@ -66,6 +67,21 @@ INSTRUMENT_BROKER_MAP: dict[str, str] = {
     "AMZN": "alpaca",
     "GOOGL":"alpaca",
     "META": "alpaca",
+    "AMD":  "alpaca",
+    "TSM":  "alpaca",
+    "AVGO": "alpaca",
+    "ORCL": "alpaca",
+    "NFLX": "alpaca",
+    # Momentum Swing universe
+    "CRM":  "alpaca",
+    "SHOP": "alpaca",
+    "PANW": "alpaca",
+    "CRWD": "alpaca",
+    "SNOW": "alpaca",
+    "MDB":  "alpaca",
+    "DDOG": "alpaca",
+    "ZS":   "alpaca",
+    "AXON": "alpaca",
 }
 
 # ── Asset class classifier (for position sizing and risk logic) ───────────────
