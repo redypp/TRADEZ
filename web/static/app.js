@@ -1134,51 +1134,92 @@ async function fetchSwingScreener() {
   } catch { /* silent */ }
 }
 
+// Category display config
+const _CAT_META = {
+  VCP:            { label: 'VCP',           color: '#a78bfa', desc: 'Volatility Contraction Pattern' },
+  BREAKOUT:       { label: '⬆ BREAKOUT',    color: '#22c55e', desc: 'Breaking above resistance' },
+  EMA20_BOUNCE:   { label: 'EMA20 BOUNCE',  color: '#60a5fa', desc: 'Pullback to 20-day EMA' },
+  EMA50_BOUNCE:   { label: 'EMA50 BOUNCE',  color: '#38bdf8', desc: 'Deeper pullback to 50-day EMA' },
+  RS_LEADER:      { label: 'RS LEADER',     color: '#f59e0b', desc: 'Relative strength leader vs SPY' },
+  ACCUMULATION:   { label: 'ACCUMULATION',  color: '#10b981', desc: 'Institutional accumulation days' },
+  SQUEEZE:        { label: 'SQUEEZE',       color: '#e879f9', desc: 'Volatility coil — BB inside KC' },
+  HIGH_TIGHT_FLAG:{ label: 'HIGH TIGHT',    color: '#f97316', desc: 'Parabolic base power play' },
+  FLAT_BASE:      { label: 'FLAT BASE',     color: '#94a3b8', desc: 'Low-vol base after advance' },
+  NEAR_52W_HIGH:  { label: 'NEAR 52W HI',  color: '#fbbf24', desc: 'Leadership — near 52-week high' },
+  PULLBACK:       { label: '↩ PULLBACK',    color: '#60a5fa', desc: 'Pullback continuation' },
+};
+
 function renderSwingScreener(d) {
   const body  = $('swing-screener-body');
   const count = $('swing-setup-count');
   if (!body) return;
 
   const setups = d?.setups || [];
-  if (count) count.textContent = setups.length ? `· ${setups.length} found` : '';
+  if (count) count.textContent = setups.length ? `· ${setups.length} on watchlist` : '';
 
   // Update status row counts
   const bigCount = $('sw-setup-big');
   if (bigCount) bigCount.textContent = setups.length || '0';
   const bkCount = $('sw-breakout-count');
   const pbCount = $('sw-pullback-count');
-  if (bkCount) bkCount.textContent = setups.filter(s => s.setup_type === 'BREAKOUT').length + ' breakout';
-  if (pbCount) pbCount.textContent = setups.filter(s => s.setup_type === 'PULLBACK').length + ' pullback';
+  const activeSignals = setups.filter(s => s.active_signal);
+  if (bkCount) bkCount.textContent = activeSignals.filter(s => s.setup_type === 'BREAKOUT').length + ' breakout';
+  if (pbCount) pbCount.textContent = (activeSignals.length - activeSignals.filter(s => s.setup_type === 'BREAKOUT').length) + ' pullback';
 
   if (!setups.length) {
-    body.innerHTML = '<div class="swing-empty">No setups detected today. Market may be extended or strategy inactive.</div>';
+    body.innerHTML = '<div class="swing-empty">Scanning universe… setups will appear here.</div>';
     return;
   }
 
   body.innerHTML = setups.map(s => {
-    const qCls    = s.quality === 'HIGH' ? 'quality-high' : 'quality-medium';
-    const typeLbl = s.setup_type === 'BREAKOUT' ? '⬆ BREAKOUT' : '↩ PULLBACK';
-    const risk    = s.close && s.stop ? (((s.close - s.stop) / s.close) * 100).toFixed(2) : '—';
-    // Use server-calculated R values (context-aware, not fixed)
-    const tp1R    = s.tp1_r != null ? s.tp1_r.toFixed(2) + 'R' : '—';
-    const tp2R    = s.tp2_r != null ? s.tp2_r.toFixed(1) + 'R' : '3R';
-    const tp1Note = s.tp1_r != null && Math.abs(s.tp1_r - 1.5) > 0.1
-      ? `<span class="swing-tp-note">adjusted from default</span>` : '';
+    const cat     = _CAT_META[s.setup_type] || { label: s.setup_type, color: '#94a3b8', desc: '' };
+    const gradeC  = s.grade === 'A' ? 'grade-a' : s.grade === 'B' ? 'grade-b' : s.grade === 'C' ? 'grade-c' : 'grade-w';
+    const sigBadge= s.active_signal
+      ? `<span class="sw-sig-badge">BOT SIGNAL</span>` : '';
+
+    // Extra category pills (beyond primary)
+    const extraCats = (s.categories || []).filter(c => c !== s.setup_type).slice(0, 2);
+    const extraPills = extraCats.map(c => {
+      const m = _CAT_META[c] || { label: c, color: '#94a3b8' };
+      return `<span class="sw-cat-pill" style="border-color:${m.color};color:${m.color}">${m.label}</span>`;
+    }).join('');
+
+    // Notes (first 2 category notes)
+    const notes = (s.category_notes || []).slice(0, 2).map(n =>
+      `<div class="sw-note">• ${n}</div>`
+    ).join('');
+
+    // Trade levels (only if bot has active signal)
+    const levelsHtml = s.active_signal && s.stop ? `
+      <div class="sw-trade-levels">
+        <span class="sw-tl-item"><span class="sw-tl-lbl">Stop</span><span class="sw-tl-val stop">${s.stop?.toFixed(2)}</span></span>
+        <span class="sw-tl-item"><span class="sw-tl-lbl">TP1 ${s.tp1_r != null ? s.tp1_r+'R' : ''}</span><span class="sw-tl-val target">${s.target?.toFixed(2) ?? '—'}</span></span>
+        <span class="sw-tl-item"><span class="sw-tl-lbl">TP2</span><span class="sw-tl-val target">${s.tp2?.toFixed(2) ?? '—'}</span></span>
+      </div>` : '';
+
     return `
-      <div class="swing-setup-row ${qCls}">
-        <div class="swing-row-top">
-          <span class="swing-symbol">${s.symbol}</span>
-          <span class="swing-type-badge">${typeLbl}</span>
-          <span class="swing-quality ${qCls}">${s.quality}</span>
-          <span class="swing-rr">${tp1R} / ${tp2R}</span>
+      <div class="sw-watchlist-row ${s.active_signal ? 'sw-row-active' : ''}">
+        <div class="sw-row-left">
+          <div class="sw-grade ${gradeC}">${s.grade}</div>
         </div>
-        <div class="swing-levels">
-          <div class="swing-level-item"><span class="sl-lbl">Entry</span><span class="sl-val">${s.close?.toFixed(2) ?? '—'}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">Stop</span><span class="sl-val stop">${s.stop?.toFixed(2) ?? '—'}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">TP1 ${tp1R}</span><span class="sl-val target">${s.target?.toFixed(2) ?? '—'} ${tp1Note}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">TP2 ${tp2R}</span><span class="sl-val target">${s.tp2?.toFixed(2) ?? '—'}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">RSI</span><span class="sl-val">${s.rsi?.toFixed(1) ?? '—'}</span></div>
-          <div class="swing-level-item"><span class="sl-lbl">Risk %</span><span class="sl-val">${risk}%</span></div>
+        <div class="sw-row-body">
+          <div class="sw-row-top">
+            <span class="swing-symbol">${s.symbol}</span>
+            <span class="sw-cat-primary" style="background:${cat.color}22;color:${cat.color};border:1px solid ${cat.color}44">${cat.label}</span>
+            ${extraPills}
+            ${sigBadge}
+            <span class="sw-score">${s.score}/100</span>
+          </div>
+          <div class="sw-row-metrics">
+            <span class="sw-metric"><span class="sw-mlbl">Price</span><span class="sw-mval">$${s.close?.toFixed(2)}</span></span>
+            <span class="sw-metric"><span class="sw-mlbl">RSI</span><span class="sw-mval ${s.rsi > 70 ? 'warn' : ''}">${s.rsi?.toFixed(0)}</span></span>
+            <span class="sw-metric"><span class="sw-mlbl">Vol</span><span class="sw-mval ${s.vol_ratio > 1.5 ? 'hi' : ''}">×${s.vol_ratio?.toFixed(1)}</span></span>
+            <span class="sw-metric"><span class="sw-mlbl">5d</span><span class="sw-mval ${s.ret_5d > 0 ? 'up' : 'dn'}">${s.ret_5d > 0 ? '+' : ''}${s.ret_5d?.toFixed(1)}%</span></span>
+            <span class="sw-metric"><span class="sw-mlbl">vs Hi</span><span class="sw-mval">${s.pct_from_52w_hi?.toFixed(1)}%</span></span>
+            <span class="sw-metric"><span class="sw-mlbl">EMA</span><span class="sw-mval">${s.above_ema20 ? '✓20' : '✗20'} ${s.above_ema50 ? '✓50' : '✗50'}</span></span>
+          </div>
+          ${notes ? `<div class="sw-notes">${notes}</div>` : ''}
+          ${levelsHtml}
         </div>
       </div>`;
   }).join('');

@@ -1416,6 +1416,59 @@ code {
 .sl-val.target { color: var(--green); }
 .swing-tp-note { font-size: 9px; color: var(--amber); font-weight: 400; margin-left: 4px; font-family: var(--sans); }
 
+/* ── Swing Watchlist rows ────────────────────────────────────── */
+.sw-watchlist-row {
+  display: flex; gap: 10px; padding: 10px 12px; margin-bottom: 6px;
+  border-radius: var(--r-sm); border: 1px solid var(--border1);
+  background: var(--s2); transition: border-color 0.15s;
+}
+.sw-watchlist-row:hover { border-color: var(--border2); }
+.sw-row-active { border-left: 3px solid var(--green); }
+.sw-row-left { display: flex; align-items: flex-start; padding-top: 2px; }
+.sw-grade {
+  width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center;
+  justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0;
+}
+.grade-a { background: rgba(34,197,94,0.15);  color: var(--green); }
+.grade-b { background: rgba(96,165,250,0.15); color: var(--blue,#60a5fa); }
+.grade-c { background: rgba(245,158,11,0.12); color: var(--amber); }
+.grade-w { background: var(--s3); color: var(--text3); }
+.sw-row-body { flex: 1; min-width: 0; }
+.sw-row-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 5px; }
+.sw-cat-primary {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 2px 7px;
+  border-radius: 4px; text-transform: uppercase; white-space: nowrap;
+}
+.sw-cat-pill {
+  font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
+  border: 1px solid; text-transform: uppercase; opacity: 0.8;
+}
+.sw-sig-badge {
+  font-size: 8px; font-weight: 800; letter-spacing: 1px; padding: 2px 6px;
+  border-radius: 4px; background: var(--green); color: #0a0a0a;
+}
+.sw-score { margin-left: auto; font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.sw-row-metrics { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.sw-metric { display: flex; gap: 3px; align-items: center; }
+.sw-mlbl { font-size: 9px; color: var(--text3); font-weight: 600; text-transform: uppercase; }
+.sw-mval { font-size: 10px; color: var(--text2); font-family: var(--mono); font-weight: 600; }
+.sw-mval.warn { color: var(--amber); }
+.sw-mval.hi   { color: var(--green); }
+.sw-mval.up   { color: var(--green); }
+.sw-mval.dn   { color: var(--red,#ef4444); }
+.sw-notes { display: flex; flex-direction: column; gap: 2px; }
+.sw-note  { font-size: 10px; color: var(--text3); font-style: italic; line-height: 1.4; }
+.sw-trade-levels {
+  display: flex; gap: 10px; margin-top: 6px; padding: 5px 8px;
+  background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.15);
+  border-radius: 4px;
+}
+.sw-tl-item { display: flex; gap: 4px; align-items: center; }
+.sw-tl-lbl  { font-size: 9px; color: var(--text3); text-transform: uppercase; font-weight: 600; }
+.sw-tl-val  { font-size: 10px; font-weight: 700; font-family: var(--mono); }
+.sw-tl-val.stop   { color: var(--red,#ef4444); }
+.sw-tl-val.target { color: var(--green); }
+
 /* ── LLM Swing Scout ideas ───────────────────────────────────── */
 .llm-market-note {
   display: flex; align-items: flex-start; gap: 8px;
