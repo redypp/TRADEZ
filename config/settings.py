@@ -210,17 +210,45 @@ SLIPPAGE_STRESS_FACTOR = float(os.getenv("SLIPPAGE_STRESS_FACTOR", "1.0"))  # 1.
 BRT_LATE_SESSION_HOUR        = 14   # After this hour ET, apply late-session size factor
 BRT_LATE_SESSION_SIZE_FACTOR = 0.75  # 75% of normal size after 14:30 ET
 
-# Risk
-# 1% per trade: enough to grow the account, small enough to survive a losing streak.
-# 3% daily stop: a 3-trade sweep-out day ends the session — protects capital on bad days.
-# 5% portfolio heat: max total dollar risk at stop across ALL open trades (all brokers).
-#   Example: $10K account → max $500 at risk across all open positions simultaneously.
-#   5% is the AQR / Two Sigma standard for diversified intraday portfolios.
+# ── Per-Strategy-Type Risk Parameters ─────────────────────────────────────────
+# Intraday strategies (BRT, VWAP_MR, ORB) hold for minutes to hours. No overnight
+# gap risk. Can afford higher risk per trade since exits are fast and controlled.
+#
+# Daily/swing strategies (SWING, RSI2, DONCHIAN) hold overnight to weeks. Subject
+# to gap risk, earnings surprises, and overnight news. Must use lower risk per trade
+# because stops can be blown past on a gap open.
+#
+# Each type has its own risk budget, drawdown cap, and portfolio heat limit.
+# The combined cap prevents both types from saturating the account simultaneously.
+
+# Intraday strategies (BRT, VWAP_MR, ORB) — fast exits, no overnight risk
+RISK_PER_TRADE_INTRADAY    = float(os.getenv("RISK_PER_TRADE_INTRADAY",    "0.01"))   # 1%
+MAX_DAILY_DRAWDOWN_INTRADAY= float(os.getenv("MAX_DAILY_DRAWDOWN_INTRADAY","0.03"))   # 3%
+PORTFOLIO_HEAT_INTRADAY    = float(os.getenv("PORTFOLIO_HEAT_INTRADAY",    "0.04"))   # 4%
+
+# Daily/swing strategies (SWING, RSI2, DONCHIAN) — overnight gap risk
+RISK_PER_TRADE_DAILY       = float(os.getenv("RISK_PER_TRADE_DAILY",       "0.005"))  # 0.5%
+MAX_DAILY_DRAWDOWN_DAILY   = float(os.getenv("MAX_DAILY_DRAWDOWN_DAILY",   "0.02"))   # 2%
+PORTFOLIO_HEAT_DAILY       = float(os.getenv("PORTFOLIO_HEAT_DAILY",       "0.03"))   # 3%
+
+# Combined portfolio heat cap (both strategy types together)
+PORTFOLIO_HEAT_COMBINED    = float(os.getenv("PORTFOLIO_HEAT_COMBINED",    "0.06"))   # 6%
+
+# Consecutive loss scale-down for daily strategies (BRT has its own: BRT_LOSING_STREAK_*)
+LOSING_STREAK_MAX_DAILY         = int(os.getenv("LOSING_STREAK_MAX_DAILY",         "3"))
+LOSING_STREAK_RISK_FACTOR_DAILY = float(os.getenv("LOSING_STREAK_RISK_FACTOR_DAILY","0.5"))
+
+# Breakeven stop management for daily/swing strategies
+# Move stop to entry when position reaches 1:1 R:R — prevents overnight winners
+# from becoming full losers on a gap open.
+BREAKEVEN_AT_1R_DAILY = os.getenv("BREAKEVEN_AT_1R_DAILY", "true").lower() == "true"
+
+# Legacy global settings (kept for backwards compatibility — used as fallbacks)
 RISK_PER_TRADE      = float(os.getenv("RISK_PER_TRADE",      "0.01"))  # 1% per trade
 MAX_TRADE_RISK      = float(os.getenv("MAX_TRADE_RISK",       "0.02"))  # 2% hard cap per trade
 MAX_OPEN_POSITIONS  = int(os.getenv("MAX_OPEN_POSITIONS",    "3"))     # max simultaneous positions
 MAX_DAILY_DRAWDOWN  = float(os.getenv("MAX_DAILY_DRAWDOWN",  "0.03"))  # 3% daily stop
-PORTFOLIO_HEAT_MAX  = float(os.getenv("PORTFOLIO_HEAT_MAX",  "0.05"))  # 5% total risk at stop
+PORTFOLIO_HEAT_MAX  = float(os.getenv("PORTFOLIO_HEAT_MAX",  "0.06"))  # 6% total (matches COMBINED)
 
 # Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")

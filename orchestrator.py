@@ -357,6 +357,10 @@ def _execute_signal(
     sweep_flag  = int(sig.get("liquidity_sweep", 0))
     direction_str = "LONG" if direction == 1 else "SHORT"
 
+    # Stamp strategy_type into the signal for risk manager
+    strategy_type = getattr(strategy, "strategy_type", "intraday")
+    sig["strategy_type"] = strategy_type
+
     # ── COT filter (MES longs) ────────────────────────────────────────────────
     cot_bias = "NEUTRAL"
     if settings.COT_FILTER_ENABLED:
@@ -736,12 +740,13 @@ def _execute_signal(
         # ── Register open trade for portfolio heat + breakeven tracking ───────
         try:
             register_trade(
-                symbol    = symbol,
-                direction = direction,
-                qty       = contracts,
-                entry     = entry_price,
-                stop      = sl_price,
-                tp        = tp_price,
+                symbol        = symbol,
+                direction     = direction,
+                qty           = contracts,
+                entry         = entry_price,
+                stop          = sl_price,
+                tp            = tp_price,
+                strategy_type = strategy_type,
             )
         except Exception as reg_err:
             logger.warning(f"[{symbol}] register_trade failed (non-fatal): {reg_err}")

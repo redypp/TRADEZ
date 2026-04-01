@@ -105,6 +105,7 @@ class DonchianStrategy(AbstractStrategy):
     name              = "DONCHIAN"
     timeframe_minutes = 1440   # daily
     priority          = 30
+    strategy_type     = "daily"  # holds 5-60 days — overnight gap risk
 
     def __init__(self):
         from config import settings as _s

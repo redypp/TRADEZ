@@ -283,6 +283,12 @@ class VWAPReversionStrategy(AbstractStrategy):
         # engine handles the per-bar check; here we gate at the regime level.
         if regime in ("NO_TRADE", "HIGH_VOL"):
             return False
+        # In CAUTIOUS regime (VIX 20-30), tighten — only enter on the flattest markets.
+        # Mean reversion has elevated failure rate when VIX is creeping toward 30.
+        if regime == "CAUTIOUS":
+            vix = fundamentals.get("vix", 0) or 0
+            if vix > 28:
+                return False  # too volatile for mean reversion
         start = settings.VWAP_MR_SESSION_START
         end   = settings.VWAP_MR_SESSION_END
         return start <= session_hour < end

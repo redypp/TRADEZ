@@ -100,6 +100,16 @@ def prepare_rsi2(df: pd.DataFrame) -> pd.DataFrame:
     rsi_indicator = ta.momentum.RSIIndicator(df["close"], window=RSI2_PERIOD)
     df["rsi2"] = rsi_indicator.rsi()
 
+    # ATR for volatility-adaptive stop loss
+    high, low, close_col = df["high"], df["low"], df["close"]
+    prev_close = close_col.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low  - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    df["atr14"] = tr.rolling(14).mean()
+
     # ── Entry conditions ────────────────────────────────────────────────────────
     df["uptrend"]  = df["close"] > df["sma200"]
     df["pullback"] = df["close"] < df["sma5"]
@@ -113,7 +123,13 @@ def prepare_rsi2(df: pd.DataFrame) -> pd.DataFrame:
     # LONG entry: all 3 conditions met
     entry_mask = df["uptrend"] & df["pullback"] & df["oversold"]
     df.loc[entry_mask, "signal"] = 1
-    df.loc[entry_mask, "stop_loss"] = df.loc[entry_mask, "close"] * (1 - RSI2_HARD_STOP_PCT)
+
+    # Volatility-adaptive stop: use the TIGHTER of ATR-based or hard % stop.
+    # ATR stop adapts to current volatility — wider in high-vol, tighter in low-vol.
+    # Hard % stop (2%) acts as a maximum backstop in extreme conditions.
+    atr_stop = df.loc[entry_mask, "close"] - 1.5 * df.loc[entry_mask, "atr14"]
+    pct_stop = df.loc[entry_mask, "close"] * (1 - RSI2_HARD_STOP_PCT)
+    df.loc[entry_mask, "stop_loss"] = pd.concat([atr_stop, pct_stop], axis=1).max(axis=1)
 
     # EXIT signal: RSI(2) has recovered AND price above 5-day MA
     exit_mask = (df["rsi2"] > RSI2_EXIT_THRESHOLD) & (df["close"] > df["sma5"])
@@ -199,12 +215,16 @@ class RSI2Strategy(AbstractStrategy):
     name              = "RSI2"
     timeframe_minutes = 1440   # daily
     priority          = 35
+    strategy_type     = "daily"  # holds 1-5 days — overnight gap risk
 
     def __init__(self):
         self.symbols = _cfg.STRATEGY_SYMBOLS.get("RSI2", ["SPY", "QQQ", "IWM"])
 
     def is_eligible(self, symbol: str, regime: str, session_hour: int, fundamentals: dict) -> bool:
         if regime == "NO_TRADE":
+            return False
+        # Block in HIGH_VOL regime — overnight gap risk too high for mean reversion
+        if regime == "HIGH_VOL":
             return False
         # VIX gate — RSI2 underperforms in extreme fear
         vix = fundamentals.get("vix", 0) or 0

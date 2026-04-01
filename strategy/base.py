@@ -34,12 +34,16 @@ class AbstractStrategy(ABC):
                                     Overridden at runtime from STRATEGY_SYMBOLS in settings.
         timeframe_minutes : int   — candle size in minutes (1440 = daily)
         priority          : int   — conflict-resolution priority; lower number wins
+        strategy_type     : str   — "intraday" or "daily" — determines risk params
+                                    Intraday: fast exits, no overnight risk (BRT, VWAP_MR, ORB)
+                                    Daily: holds overnight, gap risk (SWING, RSI2, DONCHIAN)
     """
 
     name: str = ""
     symbols: list = []
     timeframe_minutes: int = 15
     priority: int = 50
+    strategy_type: str = "intraday"  # "intraday" | "daily"
 
     @abstractmethod
     def is_eligible(

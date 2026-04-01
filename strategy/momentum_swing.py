@@ -154,6 +154,7 @@ class MomentumSwingStrategy(AbstractStrategy):
     name              = "SWING"
     timeframe_minutes = 1440   # daily bars
     priority          = 60     # lower priority than BRT (which is 50)
+    strategy_type     = "daily"  # holds 5-30 days — overnight gap risk
 
     @property
     def symbols(self) -> list:

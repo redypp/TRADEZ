@@ -37,13 +37,14 @@ class RiskBlock(Exception):
 
 @dataclass
 class OpenTrade:
-    symbol:     str
-    direction:  int        # 1 = long, -1 = short
-    qty:        int
-    entry:      float
-    stop:       float
-    tp:         float
-    dollar_risk: float     # abs(entry - stop) * qty * point_value
+    symbol:        str
+    direction:     int        # 1 = long, -1 = short
+    qty:           int
+    entry:         float
+    stop:          float
+    tp:            float
+    dollar_risk:   float      # abs(entry - stop) * qty * point_value
+    strategy_type: str = "intraday"  # "intraday" | "daily"
 
 
 # symbol → OpenTrade for current session
@@ -52,74 +53,85 @@ OPEN_TRADES: dict[str, OpenTrade] = {}
 # ─── SQLite path (same DB as trade_log.py) ────────────────────────────────────
 _DB_PATH = Path(__file__).parent.parent / "data" / "trades.db"
 
-# ─── Consecutive loss tracker ──────────────────────────────────────────────────
-# Tracks how many losses have occurred in a row this session.
-# Reset to 0 on any winning trade. Reset to 0 at start of each day.
-_streak: dict = {
-    "consecutive_losses": 0,
-    "last_reset_date":    None,
+# ─── Per-strategy-type consecutive loss tracker ──────────────────────────────
+# Tracks how many losses have occurred in a row per strategy type (intraday/daily).
+# Reset to 0 on any winning trade within that type. Reset daily.
+_streaks: dict[str, dict] = {
+    "intraday": {"consecutive_losses": 0, "last_reset_date": None},
+    "daily":    {"consecutive_losses": 0, "last_reset_date": None},
 }
 
 
-def _reset_streak_if_new_day() -> None:
+def _reset_streak_if_new_day(strategy_type: str = "intraday") -> None:
     today = date.today()
-    if _streak["last_reset_date"] != today:
-        _streak["consecutive_losses"] = 0
-        _streak["last_reset_date"]    = today
+    streak = _streaks.get(strategy_type, _streaks["intraday"])
+    if streak["last_reset_date"] != today:
+        streak["consecutive_losses"] = 0
+        streak["last_reset_date"]    = today
 
 
-def record_trade_outcome(won: bool) -> None:
+def record_trade_outcome(won: bool, strategy_type: str = "intraday") -> None:
     """
     Call after a trade closes (TP or SL hit) to update the loss streak.
 
     Args:
-        won : True if the trade was a winner, False if a loser
+        won           : True if the trade was a winner, False if a loser
+        strategy_type : "intraday" or "daily" — tracks separately
     """
-    _reset_streak_if_new_day()
+    _reset_streak_if_new_day(strategy_type)
+    streak = _streaks.get(strategy_type, _streaks["intraday"])
     if won:
-        if _streak["consecutive_losses"] > 0:
+        if streak["consecutive_losses"] > 0:
             logger.info(
-                f"Winning trade — consecutive loss streak reset "
-                f"(was {_streak['consecutive_losses']})"
+                f"Winning trade ({strategy_type}) — consecutive loss streak reset "
+                f"(was {streak['consecutive_losses']})"
             )
-        _streak["consecutive_losses"] = 0
+        streak["consecutive_losses"] = 0
     else:
-        _streak["consecutive_losses"] += 1
+        streak["consecutive_losses"] += 1
         logger.warning(
-            f"Losing trade — consecutive losses: {_streak['consecutive_losses']}"
+            f"Losing trade ({strategy_type}) — consecutive losses: {streak['consecutive_losses']}"
         )
 
 
-def get_risk_scale_factor() -> float:
+def get_risk_scale_factor(strategy_type: str = "intraday") -> float:
     """
     Return the position-size scale factor based on current loss streak.
 
-    Returns:
-        1.0  — normal sizing
-        BRT_LOSING_STREAK_RISK_FACTOR (e.g. 0.5) — step-down after N consecutive losses
+    Intraday: step down after BRT_LOSING_STREAK_MAX (default 2) consecutive losses
+    Daily:    step down after LOSING_STREAK_MAX_DAILY (default 3) consecutive losses
 
-    Example: 2 losses in a row → return 0.5 → trade at half normal risk.
     Recovery: next winning trade resets to 1.0 immediately.
     """
-    _reset_streak_if_new_day()
-    if _streak["consecutive_losses"] >= settings.BRT_LOSING_STREAK_MAX:
-        factor = settings.BRT_LOSING_STREAK_RISK_FACTOR
+    _reset_streak_if_new_day(strategy_type)
+    streak = _streaks.get(strategy_type, _streaks["intraday"])
+
+    if strategy_type == "daily":
+        max_losses = getattr(settings, "LOSING_STREAK_MAX_DAILY", 3)
+        risk_factor = getattr(settings, "LOSING_STREAK_RISK_FACTOR_DAILY", 0.5)
+    else:
+        max_losses = settings.BRT_LOSING_STREAK_MAX
+        risk_factor = settings.BRT_LOSING_STREAK_RISK_FACTOR
+
+    if streak["consecutive_losses"] >= max_losses:
         logger.warning(
-            f"Drawdown step-down active — {_streak['consecutive_losses']} consecutive losses. "
-            f"Risk factor: {factor:.0%} of normal."
+            f"Drawdown step-down active ({strategy_type}) — "
+            f"{streak['consecutive_losses']} consecutive losses. "
+            f"Risk factor: {risk_factor:.0%} of normal."
         )
-        return factor
+        return risk_factor
     return 1.0
 
 
 def register_trade(
-    symbol:      str,
-    direction:   int,
-    qty:         int,
-    entry:       float,
-    stop:        float,
-    tp:          float,
-    point_value: float | None = None,
+    symbol:        str,
+    direction:     int,
+    qty:           int,
+    entry:         float,
+    stop:          float,
+    tp:            float,
+    point_value:   float | None = None,
+    strategy_type: str = "intraday",
 ) -> None:
     """Call after a bracket order is successfully submitted."""
     if point_value is None:
@@ -128,6 +140,7 @@ def register_trade(
     trade = OpenTrade(
         symbol=symbol, direction=direction, qty=qty,
         entry=entry, stop=stop, tp=tp, dollar_risk=dollar_risk,
+        strategy_type=strategy_type,
     )
     OPEN_TRADES[symbol] = trade
     _persist_open_trade(trade)  # crash-safe: survives process restart
@@ -145,9 +158,17 @@ def close_trade(symbol: str) -> None:
         _clear_persisted_trade(symbol)
 
 
-def get_portfolio_heat_dollars() -> float:
-    """Sum of dollar risk-at-stop across all currently registered open trades."""
-    return sum(t.dollar_risk for t in OPEN_TRADES.values())
+def get_portfolio_heat_dollars(strategy_type: str | None = None) -> float:
+    """
+    Sum of dollar risk-at-stop across open trades.
+
+    Args:
+        strategy_type: None = all trades, "intraday" or "daily" = filtered
+    """
+    if strategy_type is None:
+        return sum(t.dollar_risk for t in OPEN_TRADES.values())
+    return sum(t.dollar_risk for t in OPEN_TRADES.values()
+               if t.strategy_type == strategy_type)
 
 
 # ─── SQLite open trade persistence ────────────────────────────────────────────
@@ -264,16 +285,27 @@ def check_breakeven_moves(live_prices: dict[str, float], router) -> None:
     If so, move the stop to breakeven (entry price) via the broker.
 
     Called each hourly tick BEFORE the new signal check.
-    Requires settings.BRT_BREAKEVEN_AT_1R = True.
+
+    Breakeven is applied per strategy type:
+      - Intraday: requires BRT_BREAKEVEN_AT_1R = True
+      - Daily:    requires BREAKEVEN_AT_1R_DAILY = True (default on)
 
     Args:
         live_prices : {symbol: current_price} snapshot
         router      : execution router (must support router.modify_stop)
     """
-    if not getattr(settings, "BRT_BREAKEVEN_AT_1R", False):
+    brt_be = getattr(settings, "BRT_BREAKEVEN_AT_1R", False)
+    daily_be = getattr(settings, "BREAKEVEN_AT_1R_DAILY", True)
+    if not brt_be and not daily_be:
         return
 
     for symbol, trade in list(OPEN_TRADES.items()):
+        # Check if breakeven is enabled for this trade's strategy type
+        if trade.strategy_type == "daily" and not daily_be:
+            continue
+        if trade.strategy_type == "intraday" and not brt_be:
+            continue
+
         price = live_prices.get(symbol)
         if price is None:
             continue
@@ -349,14 +381,17 @@ def check_all(
     Raises:
         RiskBlock if any check fails
     """
+    strategy_type = signal.get("strategy_type", "intraday")
+
     _check_fundamentals(fundamentals)
     _check_equity_floor(account_equity)
     _check_max_trades_today(trades_today)
     _check_open_position(symbol, open_position_size)
-    _check_portfolio_heat(account_equity)
+    _check_portfolio_heat(account_equity, strategy_type=strategy_type)
     point_val  = point_value or _get_point_value(symbol)
     contracts  = _check_position_size(symbol, signal, account_equity, point_val,
-                                      size_boost=size_boost)
+                                      size_boost=size_boost,
+                                      strategy_type=strategy_type)
     return contracts
 
 
@@ -406,25 +441,49 @@ def _check_open_position(symbol: str, open_position_size: int) -> None:
         )
 
 
-def _check_portfolio_heat(account_equity: float) -> None:
-    """Block if total portfolio heat (risk at stop across all open trades) is too high."""
+def _check_portfolio_heat(account_equity: float, strategy_type: str = "intraday") -> None:
+    """
+    Block if portfolio heat exceeds limits. Checks THREE levels:
+      1. Per-type heat (intraday or daily bucket)
+      2. Combined heat (all trades across both types)
+
+    This prevents one strategy type from saturating the entire risk budget
+    and blocking the other type from trading.
+    """
     if account_equity <= 0:
         return
 
-    heat_dollars = get_portfolio_heat_dollars()
-    heat_pct = heat_dollars / account_equity
+    # Per-type heat check
+    type_heat_dollars = get_portfolio_heat_dollars(strategy_type)
+    type_heat_pct = type_heat_dollars / account_equity
+    if strategy_type == "daily":
+        type_limit = getattr(settings, "PORTFOLIO_HEAT_DAILY", 0.03)
+    else:
+        type_limit = getattr(settings, "PORTFOLIO_HEAT_INTRADAY", 0.04)
 
-    if heat_pct >= settings.PORTFOLIO_HEAT_MAX:
+    if type_heat_pct >= type_limit:
         raise RiskBlock(
-            f"Portfolio heat limit reached: {heat_pct*100:.1f}% "
-            f"(${heat_dollars:.2f} at risk across {len(OPEN_TRADES)} open trades). "
-            f"Max allowed: {settings.PORTFOLIO_HEAT_MAX*100:.0f}%."
+            f"Portfolio heat limit ({strategy_type}): {type_heat_pct*100:.1f}% "
+            f"(${type_heat_dollars:.2f} at risk). Max allowed: {type_limit*100:.0f}%."
         )
 
-    if heat_pct >= settings.PORTFOLIO_HEAT_MAX * 0.75:
+    # Combined heat check (all open trades)
+    total_heat_dollars = get_portfolio_heat_dollars()
+    total_heat_pct = total_heat_dollars / account_equity
+    combined_limit = getattr(settings, "PORTFOLIO_HEAT_COMBINED", 0.06)
+
+    if total_heat_pct >= combined_limit:
+        raise RiskBlock(
+            f"Combined portfolio heat limit: {total_heat_pct*100:.1f}% "
+            f"(${total_heat_dollars:.2f} across {len(OPEN_TRADES)} trades). "
+            f"Max allowed: {combined_limit*100:.0f}%."
+        )
+
+    # Warning at 75% of per-type limit
+    if type_heat_pct >= type_limit * 0.75:
         logger.warning(
-            f"Portfolio heat at {heat_pct*100:.1f}% — approaching limit "
-            f"({settings.PORTFOLIO_HEAT_MAX*100:.0f}%)"
+            f"Portfolio heat ({strategy_type}) at {type_heat_pct*100:.1f}% — "
+            f"approaching limit ({type_limit*100:.0f}%)"
         )
 
 
@@ -434,40 +493,46 @@ def _check_position_size(
     equity:      float,
     point_value: float,
     size_boost:  float = 1.0,
+    strategy_type: str = "intraday",
 ) -> int:
     """
     Compute contract/share count from risk budget.
     Raises RiskBlock if even 1 contract exceeds the per-trade risk cap.
     Returns approved count (>= 1).
 
-    size_boost: multiplier from news/LLM confluence confluence (1.0 = normal).
-        Applied to the risk_budget before division. The per-unit dollar risk
-        (dollar_risk_1c) stays fixed — only the number of units scales up.
-        Hard cap (MAX_TRADE_RISK) still applies to 1 unit independently,
-        preventing boosted entries from breaching absolute risk limits.
+    Uses per-strategy-type risk params:
+      - Intraday (BRT, VWAP_MR, ORB): RISK_PER_TRADE_INTRADAY (default 1%)
+      - Daily (SWING, RSI2, DONCHIAN): RISK_PER_TRADE_DAILY (default 0.5%)
     """
     if signal.get("stop_loss") is None or signal.get("close") is None:
         raise RiskBlock("Signal missing stop_loss or close price.")
 
-    # Apply step-down factor if in a losing streak
-    scale = get_risk_scale_factor()
+    # Select risk per trade based on strategy type
+    if strategy_type == "daily":
+        risk_pct = getattr(settings, "RISK_PER_TRADE_DAILY", 0.005)
+    else:
+        risk_pct = getattr(settings, "RISK_PER_TRADE_INTRADAY", 0.01)
 
-    # Apply late-session size reduction (liquidity thins after BRT_LATE_SESSION_HOUR)
-    from datetime import datetime
-    import pytz
-    et_hour = datetime.now(pytz.timezone("America/New_York")).hour
-    late_hour   = getattr(settings, "BRT_LATE_SESSION_HOUR", 14)
-    late_factor = getattr(settings, "BRT_LATE_SESSION_SIZE_FACTOR", 1.0)
-    if et_hour >= late_hour:
-        scale *= late_factor
-        logger.debug(f"Late-session size factor applied ({late_factor}x after {late_hour}:00 ET)")
+    # Apply step-down factor if in a losing streak (per strategy type)
+    scale = get_risk_scale_factor(strategy_type)
+
+    # Apply late-session size reduction (intraday only — liquidity thins)
+    if strategy_type == "intraday":
+        from datetime import datetime
+        import pytz
+        et_hour = datetime.now(pytz.timezone("America/New_York")).hour
+        late_hour   = getattr(settings, "BRT_LATE_SESSION_HOUR", 14)
+        late_factor = getattr(settings, "BRT_LATE_SESSION_SIZE_FACTOR", 1.0)
+        if et_hour >= late_hour:
+            scale *= late_factor
+            logger.debug(f"Late-session size factor applied ({late_factor}x after {late_hour}:00 ET)")
 
     # Apply news/LLM size boost — clamped to 2x for safety
     effective_boost = min(2.0, max(1.0, float(size_boost)))
     if effective_boost != 1.0:
         logger.info(f"Size boost applied: {effective_boost:.2f}x (news/LLM confluence)")
 
-    risk_budget    = equity * settings.RISK_PER_TRADE * scale * effective_boost
+    risk_budget    = equity * risk_pct * scale * effective_boost
     max_risk_hard  = equity * settings.MAX_TRADE_RISK
     points_at_risk = abs(signal["close"] - signal["stop_loss"])
     dollar_risk_1c = points_at_risk * point_value
@@ -492,31 +557,46 @@ def _check_position_size(
     return contracts
 
 
-def check_daily_drawdown(account_equity: float, session_start_equity: float) -> None:
+def check_daily_drawdown(
+    account_equity: float,
+    session_start_equity: float,
+    strategy_type: str = "intraday",
+) -> None:
     """
-    Block trading if today's drawdown exceeds MAX_DAILY_DRAWDOWN.
-    Uses total portfolio equity across all brokers.
+    Block trading if today's drawdown exceeds the per-type limit.
+
+    Uses strategy-type-specific limits:
+      - Intraday: MAX_DAILY_DRAWDOWN_INTRADAY (default 3%)
+      - Daily:    MAX_DAILY_DRAWDOWN_DAILY (default 2%)
+
+    This prevents a bad overnight gap in a daily position from blocking
+    all intraday entries the next morning.
 
     Args:
         account_equity       : Current total portfolio equity (all brokers)
         session_start_equity : Equity recorded at market open today
+        strategy_type        : "intraday" or "daily"
     """
     if session_start_equity <= 0:
         return
 
     drawdown = (account_equity - session_start_equity) / session_start_equity
 
-    if drawdown < -settings.MAX_DAILY_DRAWDOWN:
+    if strategy_type == "daily":
+        limit = getattr(settings, "MAX_DAILY_DRAWDOWN_DAILY", 0.02)
+    else:
+        limit = getattr(settings, "MAX_DAILY_DRAWDOWN_INTRADAY", 0.03)
+
+    if drawdown < -limit:
         raise RiskBlock(
-            f"Daily drawdown limit hit: {drawdown*100:.1f}% "
-            f"(max allowed: -{settings.MAX_DAILY_DRAWDOWN*100:.0f}%). "
-            f"No more trades today."
+            f"Daily drawdown limit ({strategy_type}): {drawdown*100:.1f}% "
+            f"(max: -{limit*100:.0f}%). No more {strategy_type} trades today."
         )
 
-    if drawdown < -settings.MAX_DAILY_DRAWDOWN * 0.7:
+    if drawdown < -limit * 0.7:
         logger.warning(
-            f"Approaching daily drawdown limit: {drawdown*100:.1f}% "
-            f"(limit: -{settings.MAX_DAILY_DRAWDOWN*100:.0f}%)"
+            f"Approaching daily drawdown limit ({strategy_type}): {drawdown*100:.1f}% "
+            f"(limit: -{limit*100:.0f}%)"
         )
 
 
