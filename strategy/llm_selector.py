@@ -52,9 +52,9 @@ ET = pytz.timezone("America/New_York")
 STRATEGY_OPTIONS = ["BRT", "ORB", "VWAP_MR", "FLAT"]
 
 # ── Model IDs ─────────────────────────────────────────────────────────────────
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"   # fast + cheap orchestrator
-GPT4_MODEL   = "gpt-4o-mini"                  # fast + cheap macro analyst
-GROK_MODEL   = "grok-3-mini"                  # fast + X/live search access
+CLAUDE_MODEL = "claude-opus-4-6"                # latest Claude Opus — best reasoning for orchestration
+GPT4_MODEL   = "gpt-5.4"                       # latest GPT-5.4 flagship — macro/quant analyst
+GROK_MODEL   = "grok-4-1-fast-reasoning"        # latest Grok 4.1 — X/Twitter + reasoning
 
 # ── LLM call timeouts (seconds) ───────────────────────────────────────────────
 TIMEOUT_GROK   = 10.0
@@ -72,13 +72,21 @@ Use your live X/Twitter feed access and current news knowledge to assess the mar
 Current market snapshot:
 {context_json}
 
-Answer these three questions based on real-time data:
+Answer these questions based on REAL-TIME data — be specific, not generic:
 1. What is the current social/news sentiment for ES/SPY/S&P 500? (BULLISH / BEARISH / NEUTRAL)
 2. Are there any breaking macro events, Fed speakers, or data releases in the next 2 hours?
 3. Is there any unusual options flow, large block trades, or institutional positioning signals visible?
+4. Are there any geopolitical developments RIGHT NOW that could move markets? \
+   (tariffs, trade war escalation, military conflict, sanctions, regulatory actions)
+5. Are any mega-cap earnings results or guidance that just came out moving the index?
 
 Respond ONLY in valid JSON, no extra text:
-{{"sentiment": "BULLISH|BEARISH|NEUTRAL", "risk_events": "none|<brief description>", "unusual_activity": "none|<brief description>", "summary": "<2 sentences max>"}}"""
+{{"sentiment": "BULLISH|BEARISH|NEUTRAL", \
+"risk_events": "none|<brief description of specific event>", \
+"unusual_activity": "none|<brief description>", \
+"geo_risk": "none|<specific geo event impacting markets right now>", \
+"earnings_impact": "none|<specific mega-cap earnings driving index>", \
+"summary": "<2 sentences max — be SPECIFIC about what's driving sentiment>"}}"""
 
 _GPT4_PROMPT = """\
 You are a quantitative macro analyst for intraday CME micro-futures trading (MES/ES).
@@ -105,13 +113,13 @@ You are the strategy orchestrator for an automated MES (Micro E-mini S&P 500) fu
 
 You have received analysis from two specialist models:
 
-GROK (real-time sentiment/news):
+GROK (real-time sentiment/news/geopolitical):
 {grok_output}
 
 GPT-4 (macro/quantitative analysis):
 {gpt4_output}
 
-Current technical market data:
+Current technical + fundamental market data:
 {context_json}
 
 Available strategies:
@@ -125,12 +133,21 @@ Decision rules (hard gates — override your analysis if triggered):
 - Grok sentiment is BEARISH and bias would be LONG (MES is long-only) → FLAT
 - ADX < 18 → avoid BRT and ORB; prefer VWAP_MR or FLAT
 - risk_events contain Fed/FOMC/CPI/NFP → reduce confidence, lean FLAT
+- Grok reports active geopolitical risk (tariffs, war, sanctions) → reduce confidence by 0.10-0.20
 - If confidence < 0.55 → output FLAT regardless of strategy preference
 
-Synthesize all inputs and output ONE final strategy recommendation.
+GEOPOLITICAL AWARENESS (factor this into your decision):
+- If active_geo_risks show HIGH risk in key sectors → reduce confidence
+- If market_news_sentiment is BEARISH → lean toward FLAT or reduce size
+- If geo_risk from Grok mentions ongoing tariff/trade war → prefer FLAT over marginal setups
+- Geopolitical tail risk (war, sanctions) → FLAT unless setup is extremely strong (confidence 0.85+)
+
+Synthesize all inputs — technicals, macro, news, AND geopolitical risk — \
+and output ONE final strategy recommendation.
 
 Respond ONLY in valid JSON, no extra text:
-{{"strategy": "BRT|ORB|VWAP_MR|FLAT", "bias": "LONG|SHORT|NEUTRAL", "confidence": 0.0-1.0, "reasoning": "<2 sentences max>"}}"""
+{{"strategy": "BRT|ORB|VWAP_MR|FLAT", "bias": "LONG|SHORT|NEUTRAL", "confidence": 0.0-1.0, \
+"reasoning": "<2 sentences — cite the specific data/news driving your decision>"}}"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,7 +162,7 @@ def _build_context(market_data: dict) -> dict:
     adx   = market_data.get("adx", 0) or 0
     rsi   = market_data.get("rsi", 0) or 0
 
-    return {
+    ctx = {
         "symbol":         "MES (Micro E-mini S&P 500)",
         "timestamp":      datetime.now(ET).strftime("%Y-%m-%d %H:%M ET"),
         "session_hour":   market_data.get("session_hour"),
@@ -173,6 +190,32 @@ def _build_context(market_data: dict) -> dict:
         "tailwinds":      market_data.get("tailwinds", []),
         "long_only":      True,
     }
+
+    # ── Geopolitical & fundamental context ────────────────────────────────────
+    # Add real-time geo risk headlines and sector rotation data to inform
+    # MES decisions with broader market intelligence.
+    try:
+        from data.equity_fundamentals import GEO_SECTOR_MAP, get_symbol_news
+        # Gather current geo risk themes across key sectors
+        sector_risks = {}
+        for sym, (sector, risks, level) in GEO_SECTOR_MAP.items():
+            if level == "HIGH" and sector not in sector_risks:
+                sector_risks[sector] = risks[:2]
+        ctx["active_geo_risks"] = {
+            sector: risks for sector, risks in list(sector_risks.items())[:5]
+        }
+        # Get breaking market news that could impact S&P 500 / MES
+        spy_news = get_symbol_news("SPY")
+        ctx["market_news_sentiment"] = spy_news.get("sentiment", "NEUTRAL")
+        ctx["market_headlines"] = spy_news.get("headlines", [])[:3]
+        ctx["market_catalyst"] = spy_news.get("catalyst_summary", "")
+    except Exception:
+        ctx["active_geo_risks"] = {}
+        ctx["market_news_sentiment"] = "NEUTRAL"
+        ctx["market_headlines"] = []
+        ctx["market_catalyst"] = ""
+
+    return ctx
 
 
 # ─────────────────────────────────────────────────────────────────────────────

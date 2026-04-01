@@ -177,6 +177,9 @@ class MomentumSwingStrategy(AbstractStrategy):
 
         Blocked in extreme volatility (VIX > 35) — momentum setups fail
         in panic markets.
+
+        Fundamental gate: blocks trades on stocks with weak fundamentals,
+        imminent earnings, or active analyst downgrades.
         """
         # Only evaluate during off-hours (daily signals, not intraday)
         intraday = 9 <= session_hour <= 15
@@ -192,6 +195,29 @@ class MomentumSwingStrategy(AbstractStrategy):
         # Block in NO_TRADE regime
         if regime == "NO_TRADE":
             return False
+
+        # ── Fundamental gate (equity-specific) ────────────────────────────────
+        if getattr(settings, "FUNDAMENTAL_GATE_ENABLED", True):
+            try:
+                from data.equity_fundamentals import get_fundamentals_cached, get_fundamental_gate
+                fund = get_fundamentals_cached(symbol)
+                allowed, reason = get_fundamental_gate(fund)
+                if not allowed:
+                    logger.info(f"[SWING] {symbol} — FUNDAMENTAL GATE BLOCKED: {reason}")
+                    try:
+                        from data.trade_log import log_event
+                        log_event(
+                            f"Fundamental gate blocked {symbol}",
+                            "WARN",
+                            reason,
+                        )
+                    except Exception:
+                        pass
+                    return False
+                else:
+                    logger.debug(f"[SWING] {symbol} — {reason}")
+            except ImportError:
+                pass  # equity_fundamentals module not available — proceed without gate
 
         return True
 

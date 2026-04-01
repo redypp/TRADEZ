@@ -438,6 +438,23 @@ BRT_SESSION_END_HOUR   = 16   # Latest entry hour (ET) — extended to capture P
 BRT_LUNCH_START_HOUR   = 10   # Morning chop dead zone (ET) — backtest: 10-12 = 20-25% WR, 0.53-0.66 PF
 BRT_LUNCH_END_HOUR     = 14   # Resume at 14:00 ET — afternoon session: 66.7% WR / 3.81 PF
 
+# ── Equity Fundamental Gate ──────────────────────────────────────────────
+# Per-symbol fundamental intelligence gate for equity swing strategies.
+# Blocks trades when fundamentals are weak: earnings too close (<5d),
+# grade D, insiders dumping + low score, analysts actively downgrading.
+#
+# FUNDAMENTAL_GATE_ENABLED — master toggle for the equity fundamental gate.
+#   true (default): equity strategies (SWING, RSI2, DONCHIAN on stocks) check
+#   fundamentals before entering. Blocks weak setups even if technicals are valid.
+#   false: equity strategies trade purely on technicals (not recommended).
+#
+# FUNDAMENTAL_NEWS_ENABLED — fetch company-specific news via Grok per symbol.
+#   true: enriches LLM prompts with real-time ticker-specific headlines.
+#   false: saves Grok API credits but loses company news edge.
+#   News is cached 30 minutes per symbol.
+FUNDAMENTAL_GATE_ENABLED   = os.getenv("FUNDAMENTAL_GATE_ENABLED",   "true").lower() == "true"
+FUNDAMENTAL_NEWS_ENABLED   = os.getenv("FUNDAMENTAL_NEWS_ENABLED",   "true").lower() == "true"
+
 # ── Fundamentals / Market Regime (MES) ───────────────────────────────────
 # Live fundamentals are fetched from Yahoo Finance at signal-check time.
 # They gate trade entries and adjust position sizing context.

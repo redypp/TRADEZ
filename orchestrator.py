@@ -339,6 +339,7 @@ def _execute_signal(
 
     Gate order (each can veto independently):
         1. COT filter              — CFTC positioning extremes
+        1b. Fundamental gate       — equity fundamental intelligence (stocks only)
         2. Performance monitor     — rolling win rate (BRT only)
         3. News halt               — HIGH-impact breaking news pause window
         4. News signal gate        — Grok directional assessment vs algo direction
@@ -378,6 +379,38 @@ def _execute_signal(
         except Exception:
             pass
         return None
+
+    # ── Fundamental gate (equity strategies — stocks only) ────────────────────
+    # Blocks swing/equity trades when company fundamentals are weak.
+    # Skipped for futures symbols (MES, MNQ, MGC, SIL) — they use macro regime.
+    _futures_symbols = {"MES", "MNQ", "MGC", "SIL", "ES", "NQ", "GC", "SI"}
+    if settings.FUNDAMENTAL_GATE_ENABLED and symbol not in _futures_symbols:
+        try:
+            from data.equity_fundamentals import get_fundamentals_cached, get_fundamental_gate
+            fund = get_fundamentals_cached(symbol)
+            allowed, reason = get_fundamental_gate(fund)
+            if not allowed:
+                logger.info(
+                    f"[{symbol}] {strategy.name}: FUNDAMENTAL GATE BLOCKED — {reason}"
+                )
+                try:
+                    log_event(
+                        f"Fundamental gate blocked {symbol} {strategy.name}",
+                        "WARN",
+                        reason,
+                    )
+                    notify_risk_block(
+                        symbol=symbol,
+                        strategy_name=strategy.name,
+                        reason=f"Fundamental gate: {reason}",
+                    )
+                except Exception:
+                    pass
+                return None
+            else:
+                logger.debug(f"[{symbol}] Fundamental gate: {reason}")
+        except ImportError:
+            pass  # equity_fundamentals not available — proceed
 
     # ── Performance monitor gate (BRT only) ───────────────────────────────────
     if strategy.name == "BRT":

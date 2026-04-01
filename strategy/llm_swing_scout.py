@@ -329,6 +329,32 @@ def _gather_market_intelligence() -> dict:
     symbol_intel.sort(key=lambda x: x["opportunity_score"], reverse=True)
     top_symbols = symbol_intel[:20]
 
+    # ── Enrich top candidates with deep fundamentals ──────────────────────
+    try:
+        from data.equity_fundamentals import get_fundamentals_with_news, format_fundamental_brief
+        for sym_data in top_symbols:
+            try:
+                fund = get_fundamentals_with_news(sym_data["symbol"])
+                sym_data["fundamental_grade"]   = fund.get("fundamental_grade", "C")
+                sym_data["fundamental_score"]   = fund.get("fundamental_score", 50)
+                sym_data["insider_signal"]      = fund.get("insider_signal", "NEUTRAL")
+                sym_data["insider_detail"]      = fund.get("insider_detail", "")
+                sym_data["analyst_trend"]       = fund.get("analyst_trend", "NEUTRAL")
+                sym_data["analyst_trend_detail"]= fund.get("analyst_trend_detail", "")
+                sym_data["earnings_history"]    = fund.get("earnings_history", [])
+                sym_data["geo_risks"]           = fund.get("geo_risks", [])
+                sym_data["geo_risk_level"]      = fund.get("geo_risk_level", "MEDIUM")
+                sym_data["news_sentiment"]      = fund.get("news_sentiment", "NEUTRAL")
+                sym_data["recent_headlines"]    = fund.get("recent_headlines", [])
+                sym_data["catalyst_summary"]    = fund.get("catalyst_summary", "")
+                sym_data["bull_case"]           = fund.get("bull_case", "")
+                sym_data["bear_case"]           = fund.get("bear_case", "")
+                sym_data["fundamental_brief"]   = format_fundamental_brief(fund)
+            except Exception:
+                pass
+    except ImportError:
+        logger.debug("[SwingScout] equity_fundamentals not available — skipping enrichment")
+
     # Strong sectors (for prompt context)
     strong_sectors = [
         f"{name} ({d['ret_5d']:+.1f}% 5d)"
@@ -358,9 +384,10 @@ def _gather_market_intelligence() -> dict:
 # ─── Prompts ──────────────────────────────────────────────────────────────────
 
 _GROK_SWING_PROMPT = """\
-You are a swing trading intelligence analyst. You have access to live X/Twitter \
-and news feeds. I'm giving you REAL pre-screened market data for today's top \
-opportunity candidates — use this as your foundation.
+You are a swing trading intelligence analyst with access to live X/Twitter \
+and news feeds. You are given REAL pre-screened data INCLUDING company \
+fundamentals, insider activity, analyst trends, earnings history, and \
+geopolitical risk — use ALL of this as your foundation.
 
 Today: {today} | VIX={vix} | Market bias: {market_bias_hint}
 
@@ -370,64 +397,85 @@ SECTOR ROTATION (5-day momentum):
 TOP CANDIDATES BY OPPORTUNITY SCORE (pre-screened from {scanned_count} stocks):
 {candidates_table}
 
-LEGEND: ret_5d=5-day return%, vol_ratio=vol vs 30d avg, rsi=RSI-14, \
-ins=insider activity, earn=earnings in X days, opts=options note, \
-analyst=recommendation|upside%
+FUNDAMENTAL BRIEFS FOR TOP CANDIDATES:
+{fundamental_briefs}
+
+LEGEND: FUND=fundamental grade(score), INS=insider signal, ANALYST_TREND=upgrade/downgrade, \
+LastQ=last quarter EPS surprise, GEO=geopolitical risk, NEWS=Grok sentiment, \
+CATALYST=key company catalyst
 
 Your job: For the TOP 3-5 symbols from this list, identify the SPECIFIC \
-catalyst or news driving the setup right now. Focus on:
-- Confirmed institutional accumulation or unusual options = highest priority
-- Upcoming earnings 7-28 days out + uptrend = high conviction
+COMPANY-LEVEL catalyst or news driving the setup right now. THIS IS CRITICAL — \
+do NOT give generic sector commentary. Tell me exactly what is happening with \
+each specific company. Focus on:
+- COMPANY-SPECIFIC NEWS: earnings beats, product launches, FDA approvals, \
+  contract wins, management changes, guidance raises
 - Insider net buying + volume pickup = follow the smart money
-- Sector momentum plays where the rotation is just starting
-- Short squeeze candidates (high short % + improving price action)
+- Analyst upgrades/target raises in the last 30 days
+- Upcoming earnings 7-28 days out + uptrend + positive surprise history
+- Geopolitical risk or tailwind specific to this company's exposure
+- Short squeeze candidates (high short % + improving price + insider buying)
+- Unusual options activity confirming directional bias
 
-Supplement with any current news/social sentiment you have access to.
-Only recommend names from the provided list unless you have very strong \
-current intelligence on a name not listed.
+Supplement with any BREAKING company-specific news from X/Twitter.
+Reject any idea where fundamentals are grade D or analysts are downgrading \
+UNLESS there is a very strong contrarian catalyst.
 
 Respond in JSON:
-{{"ideas": [{{"symbol": "TICKER", "catalyst": "<specific catalyst or data point>", \
-"thesis": "<one sentence — why now, why long>", "sector": "<sector>", \
+{{"ideas": [{{"symbol": "TICKER", "catalyst": "<SPECIFIC company news or data point>", \
+"thesis": "<one sentence — why THIS COMPANY, why now, cite data>", "sector": "<sector>", \
 "urgency": "HIGH|MEDIUM|LOW", \
-"source": "institutional|insider|earnings|options|sector_rotation|news|sentiment", \
-"key_data": "<the most compelling data point from the table>"}}], \
+"source": "institutional|insider|earnings|options|sector_rotation|news|sentiment|fundamental", \
+"key_data": "<the most compelling data point — cite the number>", \
+"fundamental_view": "<BULLISH|BEARISH|NEUTRAL based on grade + insider + analyst>"}}], \
 "market_bias": "RISK_ON|RISK_OFF|NEUTRAL", \
 "avoid_sectors": ["<sector1>"], \
-"intelligence_note": "<any current market intel not captured in the data>"}}"""
+"avoid_tickers": ["<ticker with grade D or active downgrades>"], \
+"intelligence_note": "<any breaking geo/macro/company news not in the data>"}}"""
 
 
 _GPT4_SWING_PROMPT = """\
-You are a quantitative analyst scoring swing trade ideas. I'm giving you \
-data-backed swing ideas and need macro + technical validation.
+You are a quantitative analyst scoring swing trade ideas. You have REAL \
+fundamental data including earnings history, analyst consensus, insider \
+activity, and geopolitical risk — use ALL of it.
 
 Today: {today} | VIX={vix} | DXY={dxy} | 10Y={yield_10y}%
 
-IDEAS TO SCORE (with underlying data):
+IDEAS TO SCORE (with underlying data + fundamentals):
 {ideas_with_data_json}
 
 For each symbol, assess:
-1. Does macro environment (VIX, rates, DXY) support this LONG swing?
-2. Is RSI in a healthy range for entry (30-65 ideal)?
-3. Is the analyst target price realistic vs. current price?
-4. What's the options market signaling (if options data present)?
-5. Rate risk/reward: HIGH (strong data support) / MEDIUM / LOW
-6. Estimate entry zone (near current price, key level, or earnings-play entry)
-7. Primary invalidation level
+1. MACRO FIT: Does VIX/rates/DXY support this LONG swing?
+2. TECHNICAL: Is RSI healthy for entry (30-65 ideal)? Price above EMAs?
+3. FUNDAMENTALS: Does fundamental grade support the trade?
+   - Grade A/B → add conviction. Grade C → neutral. Grade D → reject unless very strong catalyst.
+4. ANALYST CONSENSUS: Target upside realistic? Recent upgrades/downgrades?
+5. INSIDER SIGNAL: Net buying = strong conviction add. Net selling = red flag.
+6. EARNINGS RISK: If earnings < 7 days → binary event, reduce conviction.
+   If earnings 7-28 days + positive surprise history → catalyst play.
+7. GEO RISK: HIGH geo risk → reduce conviction. Factor in specific exposures.
+8. NEWS ALIGNMENT: Does company-specific news sentiment confirm the technical setup?
 
-Note: if insider_summary shows NET BUY → add conviction. \
-If short_pct_float > 15% AND price rising → squeeze risk = upside amplifier.
+HARD REJECTIONS (score conviction = 0):
+- Fundamental grade D AND no overwhelming catalyst
+- Analysts actively downgrading AND insider selling
+- Earnings within 5 days (binary event — not a swing trade)
+- HIGH geo risk AND weak fundamentals (score < 50)
 
 Respond in JSON:
 {{"scored": [{{"symbol": "TICKER", "rr_rating": "HIGH|MEDIUM|LOW", \
 "macro_ok": true|false, "rsi_ok": true|false, \
-"entry_note": "<brief entry level>", "key_risk": "<invalidation>", \
+"fundamentals_ok": true|false, \
+"entry_note": "<brief entry level>", "key_risk": "<invalidation + fundamental risk>", \
 "conviction": <0.0-1.0>, \
-"data_edge": "<the strongest single data point supporting this trade>"}}]}}"""
+"data_edge": "<strongest data point — cite insider/analyst/earnings/news>", \
+"fundamental_flag": "<any fundamental concern or tailwind>"}}]}}"""
 
 
 _CLAUDE_SWING_PROMPT = """\
-You are the final decision layer for a data-driven swing trading bot.
+You are the final decision layer for a data-driven swing trading bot. \
+You have access to REAL fundamentals, company news, insider activity, \
+analyst consensus, and geopolitical risk — this is your edge over pure-technical algos.
 
 Today: {today} | VIX: {vix} | Market bias: {market_bias}
 
@@ -435,35 +483,47 @@ INTELLIGENCE GATHERED (real data — not speculation):
 Sector leaders: {strong_sectors}
 Sectors to avoid: {weak_sectors}
 
-GROK's top picks (catalyst + news intelligence):
+GROK's top picks (company-specific catalyst + news intelligence):
 {grok_ideas_json}
 
-GPT-4's quantitative scores:
+GPT-4's quantitative + fundamental scores:
 {gpt4_scored_json}
 
-FULL DATA CONTEXT for top candidates:
+FULL DATA + FUNDAMENTALS for top candidates:
 {symbol_data_json}
 
-Your job:
-1. Combine data evidence + news catalyst + macro score → rank top 3 ideas
-2. For each, write a sharp 1-sentence thesis grounded in the ACTUAL DATA
-   (cite the specific data point: "Insiders net-bought 200K shares + earnings in 12 days")
-3. Reject any idea where the data doesn't support the thesis
-4. A valid trade requires: clear catalyst OR unusual institutional signal, \
-   price above EMAs, RSI not overbought, macro not hostile
-5. Assign final confidence (0.0-1.0). Only include >= 0.60. Be selective.
+Your job — be the smart money filter:
+1. Combine: company fundamentals + news catalyst + insider signal + macro score → rank top 3
+2. For each, write a sharp 1-sentence thesis citing SPECIFIC DATA:
+   "NVDA: Insiders net-bought 200K shares, analysts upgrading (+2 buys 90d), \
+   earnings in 12 days with 4Q beat streak, grade A(82)"
+3. HARD REJECT any idea where:
+   - Fundamental grade D with no overwhelming catalyst
+   - Insiders selling AND analysts downgrading (smart money exiting)
+   - Earnings < 5 days (binary event risk, not a swing)
+   - News sentiment BEARISH and no contrarian data to override
+   - HIGH geo risk + weak fundamentals (score < 50)
+4. A valid HIGH-conviction trade requires at least 2 of:
+   - Clear company-specific catalyst (not just sector rotation)
+   - Insider buying or unusual options activity
+   - Analyst upgrades or significant target upside (>15%)
+   - Positive earnings surprise history (3+ Q beat streak)
+   - Fundamental grade A or B
+5. Assign confidence (0.0-1.0). Only include >= 0.60. Grade A fundamentals + \
+   insider buying + catalyst = 0.85+. Grade C with one catalyst = 0.60-0.70.
 
 Respond in JSON:
 {{"top_ideas": [{{"symbol": "TICKER", \
-"thesis": "<data-grounded one sentence — cite the key evidence>", \
+"thesis": "<data-grounded — cite fundamental grade, insider signal, analyst trend, earnings>", \
 "confidence": <0.0-1.0>, \
-"catalyst": "<specific catalyst or data trigger>", \
+"catalyst": "<SPECIFIC company catalyst — not generic>", \
 "entry_note": "<entry context>", \
-"key_risk": "<main risk>", \
+"key_risk": "<fundamental + technical + geo risk>", \
 "conviction_tier": "HIGH|MEDIUM", \
-"supporting_data": "<the 2-3 data points that make this compelling>"}}], \
-"rejected": [{{"symbol": "TICKER", "reason": "<why rejected>"}}], \
-"market_note": "<one sentence on overall swing environment today>"}}"""
+"supporting_data": "<3 data points: insider signal + analyst trend + earnings history>", \
+"fundamental_grade": "<A|B|C from the data>"}}], \
+"rejected": [{{"symbol": "TICKER", "reason": "<cite fundamental data why rejected>"}}], \
+"market_note": "<one sentence on macro + fundamental environment for swings today>"}}"""
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -495,16 +555,50 @@ def _format_candidates_table(symbols: list) -> str:
             f"vol×{s['vol_ratio']:.1f}",
             f"RSI:{s['rsi']:.0f}",
         ]
-        if s.get("insider_summary"):
+        # Fundamental grade
+        grade = s.get("fundamental_grade")
+        if grade:
+            parts.append(f"FUND:{grade}({s.get('fundamental_score', 50)})")
+        # Insider signal (enriched from fundamentals)
+        ins_signal = s.get("insider_signal", "")
+        if ins_signal and ins_signal != "NEUTRAL":
+            detail = s.get("insider_detail", s.get("insider_summary", ""))
+            parts.append(f"INS:{ins_signal}({detail[:25]})" if detail else f"INS:{ins_signal}")
+        elif s.get("insider_summary"):
             parts.append(f"INS:{s['insider_summary'][:30]}")
+        # Analyst trend
+        trend = s.get("analyst_trend", "")
+        if trend and trend != "NEUTRAL":
+            parts.append(f"ANALYST_TREND:{trend}")
+        # Earnings
         if s.get("earnings_in_days") and 0 < s["earnings_in_days"] <= 30:
             parts.append(f"EARN:{s['earnings_date']}({s['earnings_in_days']}d)")
+        # Earnings history (last Q surprise)
+        hist = s.get("earnings_history", [])
+        if hist and hist[0].get("surprise_pct") is not None:
+            parts.append(f"LastQ:{hist[0]['surprise_pct']:+.1f}%surprise")
+        # Options
         if s.get("options_note"):
             parts.append(f"OPTS:{s['options_note']}")
+        # Analyst target
         if s.get("analyst_upside_pct") and s["analyst_upside_pct"] > 10:
             parts.append(f"TGT:+{s['analyst_upside_pct']:.0f}%({s['analyst_rec']})")
+        # Short interest
         if s.get("short_pct_float") and s["short_pct_float"] > 10:
             parts.append(f"SHORT:{s['short_pct_float']:.0f}%float")
+        # Geo risk
+        geo_lvl = s.get("geo_risk_level", "")
+        if geo_lvl == "HIGH":
+            geo_risks = s.get("geo_risks", [])
+            parts.append(f"GEO:HIGH({geo_risks[0][:20]})" if geo_risks else "GEO:HIGH")
+        # News sentiment
+        news_sent = s.get("news_sentiment", "NEUTRAL")
+        if news_sent != "NEUTRAL":
+            parts.append(f"NEWS:{news_sent}")
+        # Catalyst summary
+        catalyst = s.get("catalyst_summary", "")
+        if catalyst:
+            parts.append(f"CATALYST:{catalyst[:40]}")
         lines.append("  " + "  ".join(parts))
     return "\n".join(lines)
 
@@ -522,6 +616,13 @@ async def _query_grok_swing(intel: dict, vix: float) -> dict:
         strong = intel.get("strong_sectors", [])
         bias_hint = "RISK_ON" if len(strong) >= 3 else "RISK_OFF" if vix > 25 else "NEUTRAL"
 
+        # Build fundamental briefs for top candidates
+        fund_briefs = "\n".join(
+            s.get("fundamental_brief", f"[{s['symbol']}] No fundamental data")
+            for s in intel.get("symbols", [])[:10]
+            if s.get("fundamental_brief")
+        ) or "No fundamental data available"
+
         prompt = _GROK_SWING_PROMPT.format(
             today=datetime.now(ET).strftime("%A %B %d, %Y"),
             vix=round(vix, 1),
@@ -529,10 +630,11 @@ async def _query_grok_swing(intel: dict, vix: float) -> dict:
             sector_summary=intel.get("summary", ""),
             scanned_count=intel.get("scanned_count", len(_SCAN_UNIVERSE)),
             candidates_table=_format_candidates_table(intel.get("symbols", [])),
+            fundamental_briefs=fund_briefs,
         )
         resp = await asyncio.wait_for(
             client.chat.completions.create(
-                model="grok-3-mini",
+                model="grok-4-1-fast-reasoning",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1000,
@@ -556,12 +658,14 @@ async def _query_gpt4_swing(ideas: list, intel: dict, vix: float, dxy: float, yi
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=s.OPENAI_API_KEY)
 
-        # Enrich ideas with their underlying data
+        # Enrich ideas with their underlying data + fundamentals
         symbol_lookup = {sym["symbol"]: sym for sym in intel.get("all_symbols", [])}
+        # Also check top_symbols which have fundamental enrichment
+        top_lookup = {sym["symbol"]: sym for sym in intel.get("symbols", [])}
         ideas_enriched = []
         for idea in ideas:
             enriched = dict(idea)
-            sym_data = symbol_lookup.get(idea.get("symbol"), {})
+            sym_data = top_lookup.get(idea.get("symbol"), symbol_lookup.get(idea.get("symbol"), {}))
             enriched["_data"] = {k: v for k, v in sym_data.items()
                                   if k not in ("symbol",) and v is not None}
             ideas_enriched.append(enriched)
@@ -575,7 +679,7 @@ async def _query_gpt4_swing(ideas: list, intel: dict, vix: float, dxy: float, yi
         )
         resp = await asyncio.wait_for(
             client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-5.4",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.15,
                 max_tokens=700,
@@ -599,11 +703,18 @@ async def _query_claude_swing(grok_out: dict, gpt4_out: dict, intel: dict, vix: 
         import anthropic
         client = anthropic.AsyncAnthropic(api_key=s.ANTHROPIC_API_KEY)
 
-        # Include full symbol data for top candidates so Claude has the complete picture
+        # Include full symbol data + fundamentals for top candidates
+        # Prefer enriched top_symbols (have fundamental data) over raw all_symbols
+        top_sym_lookup = {sym["symbol"]: sym for sym in intel.get("symbols", [])}
         all_sym = {sym["symbol"]: sym for sym in intel.get("all_symbols", [])}
         top_syms = [i.get("symbol") for i in grok_out.get("ideas", [])] + \
                    [s.get("symbol") for s in gpt4_out.get("scored", [])]
-        symbol_data_subset = {sym: all_sym[sym] for sym in set(top_syms) if sym in all_sym}
+        symbol_data_subset = {}
+        for sym in set(top_syms):
+            if sym in top_sym_lookup:
+                symbol_data_subset[sym] = top_sym_lookup[sym]
+            elif sym in all_sym:
+                symbol_data_subset[sym] = all_sym[sym]
 
         prompt = _CLAUDE_SWING_PROMPT.format(
             today=datetime.now(ET).strftime("%B %d, %Y"),
@@ -617,7 +728,7 @@ async def _query_claude_swing(grok_out: dict, gpt4_out: dict, intel: dict, vix: 
         )
         resp = await asyncio.wait_for(
             client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model="claude-opus-4-6",
                 max_tokens=900,
                 messages=[{"role": "user", "content": prompt}],
             ),

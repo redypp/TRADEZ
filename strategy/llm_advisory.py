@@ -43,9 +43,9 @@ TIMEOUT_GROK   = 10.0
 TIMEOUT_GPT4   = 10.0
 TIMEOUT_CLAUDE = 12.0
 
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-GPT4_MODEL   = "gpt-4o-mini"
-GROK_MODEL   = "grok-3-mini"
+CLAUDE_MODEL = "claude-opus-4-6"                # latest Claude Opus — best reasoning
+GPT4_MODEL   = "gpt-5.4"                       # latest GPT-5.4 flagship
+GROK_MODEL   = "grok-4-1-fast-reasoning"        # latest Grok 4.1 — X/Twitter + reasoning
 
 
 # ─────────────────────────────────────────────────────────────────────────────
