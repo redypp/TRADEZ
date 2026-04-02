@@ -53,6 +53,21 @@ function setText(id, text, cls) {
   el.addEventListener('animationend', () => el.classList.remove('flash'), { once:true });
 }
 
+// ── Collapsible sections ─────────────────────────────────────────────────────
+function toggleSection(btn) {
+  const body = btn.nextElementSibling;
+  const chevron = btn.querySelector('.ct-chevron');
+  if (body.style.display === 'none') {
+    body.style.display = '';
+    if (chevron) chevron.textContent = '▾';
+    btn.classList.add('open');
+  } else {
+    body.style.display = 'none';
+    if (chevron) chevron.textContent = '▸';
+    btn.classList.remove('open');
+  }
+}
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 function activateTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -447,6 +462,42 @@ function renderJournal(trades) {
   const alEl = $('jst-avg-loss');
   if (alEl) { alEl.textContent = avgLoss != null ? fmtPnl(avgLoss) : '—'; alEl.style.color = 'var(--red)'; }
 
+  // Profit Factor
+  const grossWins   = wins.reduce((a,t)=>a+t.pnl,0);
+  const grossLosses = Math.abs(losses.reduce((a,t)=>a+t.pnl,0));
+  const pf = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? 999 : 0;
+  const pfEl = $('jst-pf');
+  if (pfEl) { pfEl.textContent = closed.length ? pf.toFixed(2) : '—'; pfEl.style.color = pf >= 2 ? 'var(--green)' : pf >= 1.3 ? 'var(--amber)' : 'var(--red)'; }
+
+  // Max Drawdown
+  let peak = 0, maxDD = 0, running = 0;
+  closed.forEach(t => { running += t.pnl || 0; if (running > peak) peak = running; const dd = peak - running; if (dd > maxDD) maxDD = dd; });
+  const ddEl = $('jst-max-dd');
+  if (ddEl) ddEl.textContent = closed.length ? '-$' + maxDD.toFixed(2) : '—';
+
+  // Best / Worst trade
+  const bestTrade  = closed.length ? Math.max(...closed.map(t=>t.pnl)) : null;
+  const worstTrade = closed.length ? Math.min(...closed.map(t=>t.pnl)) : null;
+  const bestEl = $('jst-best');
+  if (bestEl) bestEl.textContent = bestTrade != null ? fmtPnl(bestTrade) : '—';
+  const worstEl = $('jst-worst');
+  if (worstEl) worstEl.textContent = worstTrade != null ? fmtPnl(worstTrade) : '—';
+
+  // Avg R:R
+  const rrTrades = closed.filter(t => t.entry_price && t.stop_loss && t.take_profit);
+  const avgRR = rrTrades.length ? rrTrades.reduce((a,t) => a + Math.abs((t.take_profit - t.entry_price) / (t.entry_price - t.stop_loss)), 0) / rrTrades.length : null;
+  const rrEl = $('jst-avg-rr');
+  if (rrEl) rrEl.textContent = avgRR != null ? avgRR.toFixed(1) + 'R' : '—';
+
+  // Expectancy (avg win × win rate - avg loss × loss rate)
+  if (closed.length) {
+    const wr = wins.length / closed.length;
+    const lr = 1 - wr;
+    const exp = (avgWin || 0) * wr + (avgLoss || 0) * lr;
+    const expEl = $('jst-expectancy');
+    if (expEl) { expEl.textContent = fmtPnl(exp) + '/trade'; expEl.style.color = exp >= 0 ? 'var(--green)' : 'var(--red)'; }
+  }
+
   // Trade cards
   cards.innerHTML = trades.map(t => {
     const isOpen  = t.pnl == null;
@@ -520,13 +571,15 @@ function renderTrades(trades, summary) {
     setText('ps-total',  `${summary.total  ?? 0} trades`);
   }
   const tc = $('trade-count');
-  if (tc && trades) tc.textContent = trades.length + ' records';
+  if (tc && trades) tc.textContent = trades.length + ' total';
   const tbody = $('trades-tbody'); if (!tbody) return;
   if (!trades?.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty-cell">No trades recorded yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No trades recorded yet</td></tr>';
     return;
   }
-  tbody.innerHTML = trades.map(t => {
+  // Show last 5 trades in compact view
+  const recent = trades.slice(0, 5);
+  tbody.innerHTML = recent.map(t => {
     const hasPnl = t.pnl != null;
     const pCls   = !hasPnl ? 'pnl-open' : t.pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
     const pTxt   = !hasPnl ? 'open' : fmtPnl(t.pnl);
@@ -536,13 +589,9 @@ function renderTrades(trades, summary) {
       <td class="${t.direction==='LONG'?'dir-long':'dir-short'}">${t.direction||'—'}</td>
       <td>${t.level_type||'—'}</td>
       <td>${fp(t.entry_price)}</td>
-      <td>${fp(t.stop_loss)}</td>
-      <td>${fp(t.take_profit)}</td>
       <td>${fp(t.exit_price)}</td>
       <td style="color:var(--text2)">${t.exit_reason||'—'}</td>
       <td class="${pCls}">${pTxt}</td>
-      <td style="color:var(--text3)">${t.regime||'—'}</td>
-      <td style="color:var(--text3)">${t.vix!=null?f(t.vix,1):'—'}</td>
       <td>${sweepBadge}</td>
     </tr>`;
   }).join('');
@@ -1061,6 +1110,7 @@ async function refreshStackTab() {
   const broker = await fetchBrokerStatus();
   renderInfraGrid(broker);
   renderSetupChecklist(broker);
+  fetchStrategyStatus();
 }
 
 // Hook into tab switching — refresh Stack tab data when selected

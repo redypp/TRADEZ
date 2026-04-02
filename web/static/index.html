@@ -23,6 +23,7 @@
     <button class="tab-btn active" id="strategy-tab-btn" data-tab="brt">Strategy</button>
     <button class="tab-btn" data-tab="screener">AI Screener</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
+    <button class="tab-btn" data-tab="lab">Lab</button>
     <button class="tab-btn" data-tab="stack">Stack</button>
   </nav>
 
@@ -213,72 +214,84 @@
     </div>
   </div>
 
-  <!-- Trade log -->
+  <!-- Recent trades (compact — full journal in Journal tab) -->
   <div class="card trades-card">
-    <div class="card-head">TRADE LOG <span id="trade-count" class="card-head-count"></span></div>
+    <div class="card-head">
+      RECENT TRADES <span id="trade-count" class="card-head-count"></span>
+      <button class="btn-secondary btn-sm" onclick="activateTab('journal')" style="margin-left:auto;font-size:10px">View Full Journal →</button>
+    </div>
     <div class="table-wrap">
       <table class="data-table">
         <thead>
           <tr>
             <th>Time</th><th>Dir</th><th>Level</th><th>Entry</th>
-            <th>Stop</th><th>Target</th><th>Exit</th><th>Reason</th>
-            <th>P&amp;L</th><th>Regime</th><th>VIX</th><th>Sweep</th>
+            <th>Exit</th><th>Reason</th><th>P&amp;L</th><th>Sweep</th>
           </tr>
         </thead>
         <tbody id="trades-tbody">
-          <tr><td colspan="12" class="empty-cell">No trades recorded yet</td></tr>
+          <tr><td colspan="8" class="empty-cell">No trades recorded yet</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Regime Cards ─────────────────────────────────────────── -->
-  <div class="page-header" style="padding-top:24px">
-    <h2 class="page-title" style="font-size:15px">Adaptive Regimes</h2>
-    <p class="page-sub">Parameters shift automatically as VIX changes — the strategy logic never changes, only the thresholds.</p>
-  </div>
-  <div id="rsh-regime-name" style="display:none"></div>
-  <div class="regime-grid">
-    <div class="regime-card" data-regime="TRENDING">
-      <div class="rc-header"><div class="rc-color trending"></div><div><div class="rc-name">TRENDING</div><div class="rc-vix">VIX &lt; 12</div></div><div id="active-TRENDING" class="rc-active-badge" style="display:none">ACTIVE</div></div>
-      <p class="rc-desc">Low-fear bull run. Most permissive filters — capture clean breakouts with tight stops.</p>
-      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">18</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.20 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">20</span></div></div>
-      <div class="rc-footer trending-footer">Full size · All level types</div>
-    </div>
-    <div class="regime-card" data-regime="NORMAL">
-      <div class="rc-header"><div class="rc-color normal"></div><div><div class="rc-name">NORMAL</div><div class="rc-vix">VIX 12 – 20</div></div><div id="active-NORMAL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
-      <p class="rc-desc">Baseline market conditions. Standard parameters — balanced between risk and opportunity.</p>
-      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.30 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">14</span></div></div>
-      <div class="rc-footer normal-footer">Full size · All level types</div>
-    </div>
-    <div class="regime-card" data-regime="CAUTIOUS">
-      <div class="rc-header"><div class="rc-color cautious"></div><div><div class="rc-name">CAUTIOUS</div><div class="rc-vix">VIX 20 – 30</div></div><div id="active-CAUTIOUS" class="rc-active-badge" style="display:none">ACTIVE</div></div>
-      <p class="rc-desc">Elevated volatility. Stricter entry filters, wider stops to absorb noise.</p>
-      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">22</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.40 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">10</span></div></div>
-      <div class="rc-footer cautious-footer">Half size · PDH/PDL &amp; VWAP only</div>
-    </div>
-    <div class="regime-card" data-regime="HIGH_VOL">
-      <div class="rc-header"><div class="rc-color highvol"></div><div><div class="rc-name">HIGH VOL</div><div class="rc-vix">VIX 30 – 40</div></div><div id="active-HIGH_VOL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
-      <p class="rc-desc">High fear. Defensive posture — minimum size, wide stops, strongest confirmation required.</p>
-      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">25</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.50 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">1.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">8</span></div></div>
-      <div class="rc-footer highvol-footer">Min size · PDH/PDL only · Long only</div>
-    </div>
-    <div class="regime-card" data-regime="NO_TRADE">
-      <div class="rc-header"><div class="rc-color notrade"></div><div><div class="rc-name">NO TRADE</div><div class="rc-vix">VIX &gt; 40</div></div><div id="active-NO_TRADE" class="rc-active-badge" style="display:none">ACTIVE</div></div>
-      <p class="rc-desc">Panic territory. All entries blocked — capital preservation only. Exit any open positions.</p>
-      <div class="rc-params"><div class="rp-row"><span class="rp-lbl">New entries</span><span class="rp-val">BLOCKED</span></div><div class="rp-row"><span class="rp-lbl">Open positions</span><span class="rp-val">Exit ASAP</span></div></div>
-      <div class="rc-footer notrade-footer">NO NEW TRADES</div>
+  <!-- Regime Cards (collapsible) ─────────────────────────────── -->
+  <div class="collapsible-section">
+    <button class="collapsible-toggle" onclick="toggleSection(this)">
+      <span class="ct-title">Adaptive Regimes</span>
+      <span class="ct-sub">VIX-based parameter adaptation</span>
+      <span class="ct-chevron">▸</span>
+    </button>
+    <div class="collapsible-body" style="display:none">
+      <div id="rsh-regime-name" style="display:none"></div>
+      <div class="regime-grid">
+        <div class="regime-card" data-regime="TRENDING">
+          <div class="rc-header"><div class="rc-color trending"></div><div><div class="rc-name">TRENDING</div><div class="rc-vix">VIX &lt; 12</div></div><div id="active-TRENDING" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+          <p class="rc-desc">Low-fear bull run. Most permissive filters — capture clean breakouts with tight stops.</p>
+          <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">18</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.20 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">20</span></div></div>
+          <div class="rc-footer trending-footer">Full size · All level types</div>
+        </div>
+        <div class="regime-card" data-regime="NORMAL">
+          <div class="rc-header"><div class="rc-color normal"></div><div><div class="rc-name">NORMAL</div><div class="rc-vix">VIX 12 – 20</div></div><div id="active-NORMAL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+          <p class="rc-desc">Baseline market conditions. Standard parameters — balanced between risk and opportunity.</p>
+          <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">20</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.30 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">14</span></div></div>
+          <div class="rc-footer normal-footer">Full size · All level types</div>
+        </div>
+        <div class="regime-card" data-regime="CAUTIOUS">
+          <div class="rc-header"><div class="rc-color cautious"></div><div><div class="rc-name">CAUTIOUS</div><div class="rc-vix">VIX 20 – 30</div></div><div id="active-CAUTIOUS" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+          <p class="rc-desc">Elevated volatility. Stricter entry filters, wider stops to absorb noise.</p>
+          <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">22</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.40 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">2.0R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">10</span></div></div>
+          <div class="rc-footer cautious-footer">Half size · PDH/PDL &amp; VWAP only</div>
+        </div>
+        <div class="regime-card" data-regime="HIGH_VOL">
+          <div class="rc-header"><div class="rc-color highvol"></div><div><div class="rc-name">HIGH VOL</div><div class="rc-vix">VIX 30 – 40</div></div><div id="active-HIGH_VOL" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+          <p class="rc-desc">High fear. Defensive posture — minimum size, wide stops, strongest confirmation required.</p>
+          <div class="rc-params"><div class="rp-row"><span class="rp-lbl">ADX minimum</span><span class="rp-val">25</span></div><div class="rp-row"><span class="rp-lbl">SL buffer</span><span class="rp-val">0.50 × ATR</span></div><div class="rp-row"><span class="rp-lbl">Take profit</span><span class="rp-val">1.5R</span></div><div class="rp-row"><span class="rp-lbl">Max retest bars</span><span class="rp-val">8</span></div></div>
+          <div class="rc-footer highvol-footer">Min size · PDH/PDL only · Long only</div>
+        </div>
+        <div class="regime-card" data-regime="NO_TRADE">
+          <div class="rc-header"><div class="rc-color notrade"></div><div><div class="rc-name">NO TRADE</div><div class="rc-vix">VIX &gt; 40</div></div><div id="active-NO_TRADE" class="rc-active-badge" style="display:none">ACTIVE</div></div>
+          <p class="rc-desc">Panic territory. All entries blocked — capital preservation only. Exit any open positions.</p>
+          <div class="rc-params"><div class="rp-row"><span class="rp-lbl">New entries</span><span class="rp-val">BLOCKED</span></div><div class="rp-row"><span class="rp-lbl">Open positions</span><span class="rp-val">Exit ASAP</span></div></div>
+          <div class="rc-footer notrade-footer">NO NEW TRADES</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Pine Script viewer ────────────────────────────────────── -->
-  <div class="page-header" style="padding-top:24px">
-    <h2 class="page-title" style="font-size:15px">Pine Script v6</h2>
-    <p class="page-sub">TradingView strategy — paste into Pine Editor for visual backtesting and parameter tuning.</p>
-  </div>
-  <div class="card pine-card" style="margin:0 24px 32px">
-    <div class="card-head">PINE SCRIPT v6<span class="pine-version-badge">v6</span><button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button></div>
-    <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
+  <!-- Pine Script viewer (collapsible) ────────────────────────── -->
+  <div class="collapsible-section">
+    <button class="collapsible-toggle" onclick="toggleSection(this)">
+      <span class="ct-title">Pine Script v6</span>
+      <span class="ct-sub">TradingView strategy — paste into Pine Editor</span>
+      <span class="ct-chevron">▸</span>
+    </button>
+    <div class="collapsible-body" style="display:none">
+      <div class="card pine-card" style="margin:0">
+        <div class="card-head">PINE SCRIPT v6<span class="pine-version-badge">v6</span><button class="pine-copy-btn" id="pine-copy-btn" onclick="copyPine()">Copy</button></div>
+        <pre id="pine-code" class="pine-pre"><code id="pine-code-inner">Loading…</code></pre>
+      </div>
+    </div>
   </div>
 
 </div><!-- /tab-brt -->
@@ -575,6 +588,30 @@
       <div class="stat-label">Avg Loss</div>
       <div class="stat-value red" id="jst-avg-loss">—</div>
     </div>
+    <div class="stat-card">
+      <div class="stat-label">Profit Factor</div>
+      <div class="stat-value" id="jst-pf">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Max Drawdown</div>
+      <div class="stat-value red" id="jst-max-dd">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Best Trade</div>
+      <div class="stat-value green" id="jst-best">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Worst Trade</div>
+      <div class="stat-value red" id="jst-worst">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg R:R</div>
+      <div class="stat-value" id="jst-avg-rr">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Expectancy</div>
+      <div class="stat-value" id="jst-expectancy">—</div>
+    </div>
   </div>
 
   <!-- Trade cards -->
@@ -582,6 +619,130 @@
     <div class="journal-empty">Loading trades…</div>
   </div>
 </div><!-- /tab-journal -->
+
+<!-- ════════════════════════════════════ LAB TAB ═════════════════════════════ -->
+<div id="tab-lab" class="tab-panel">
+  <div class="section-header">
+    <h2>Strategy Lab</h2>
+    <p class="section-sub">Backtest any strategy on historical data + Monte Carlo simulation.</p>
+  </div>
+
+  <div class="lab-controls">
+    <div class="lab-control-row">
+      <div class="lab-field">
+        <label class="lab-label">Strategy</label>
+        <select id="lab-strategy" class="lab-select">
+          <option value="BRT">BRT — Break &amp; Retest</option>
+          <option value="ORB">ORB — Opening Range</option>
+          <option value="DONCHIAN">DONCHIAN — Breakout</option>
+          <option value="RSI2">RSI2 — Mean Reversion</option>
+          <option value="VWAP_MR">VWAP — Mean Reversion</option>
+        </select>
+      </div>
+      <div class="lab-field">
+        <label class="lab-label">Symbol</label>
+        <select id="lab-symbol" class="lab-select"></select>
+      </div>
+      <div class="lab-field">
+        <label class="lab-label">Timeframe</label>
+        <select id="lab-timeframe" class="lab-select"></select>
+      </div>
+      <div class="lab-field">
+        <label class="lab-label">Capital ($)</label>
+        <input id="lab-capital" type="number" value="10000" min="1000" step="1000" class="lab-input"/>
+      </div>
+      <div class="lab-field lab-field-check">
+        <label><input id="lab-mc" type="checkbox" checked/> Monte Carlo (2k sims)</label>
+      </div>
+      <button id="lab-run-btn" class="lab-run-btn">Run Backtest</button>
+    </div>
+  </div>
+
+  <div id="lab-warning" class="lab-warning" style="display:none"></div>
+  <div id="lab-loading" class="lab-loading" style="display:none">
+    <div class="lab-spinner"></div>
+    <span>Running backtest… this may take 10–30 seconds</span>
+  </div>
+
+  <div id="lab-results" style="display:none">
+    <!-- Metrics row -->
+    <div class="lab-metrics-row">
+      <div class="lab-metric-card">
+        <div class="lmc-label">Trades</div>
+        <div class="lmc-value" id="lm-trades">—</div>
+        <div class="lmc-sub" id="lm-trades-sub"></div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Win Rate</div>
+        <div class="lmc-value" id="lm-wr">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Profit Factor</div>
+        <div class="lmc-value" id="lm-pf">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Sharpe Ratio</div>
+        <div class="lmc-value" id="lm-sharpe">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Total Return</div>
+        <div class="lmc-value" id="lm-ret">—</div>
+      </div>
+      <div class="lab-metric-card">
+        <div class="lmc-label">Max Drawdown</div>
+        <div class="lmc-value" id="lm-dd">—</div>
+      </div>
+    </div>
+
+    <!-- Equity chart -->
+    <div class="card" style="margin:12px 24px">
+      <div class="card-head">EQUITY CURVE</div>
+      <div class="chart-wrap"><canvas id="lab-equity-chart"></canvas></div>
+    </div>
+
+    <!-- Monte Carlo -->
+    <div id="lab-mc-section" style="display:none">
+      <div class="lab-metrics-row" style="margin-top:0">
+        <div class="lab-metric-card">
+          <div class="lmc-label">Ruin Prob</div>
+          <div class="lmc2-value" id="mc-ruin">—</div>
+        </div>
+        <div class="lab-metric-card">
+          <div class="lmc-label">Profit Prob</div>
+          <div class="lmc2-value" id="mc-profit">—</div>
+        </div>
+        <div class="lab-metric-card">
+          <div class="lmc-label">Median Equity</div>
+          <div class="lmc2-value" id="mc-median">—</div>
+        </div>
+        <div class="lab-metric-card">
+          <div class="lmc-label">5th %ile Equity</div>
+          <div class="lmc2-value" id="mc-p05">—</div>
+        </div>
+        <div class="lab-metric-card">
+          <div class="lmc-label">Median Max DD</div>
+          <div class="lmc2-value" id="mc-med-dd">—</div>
+        </div>
+        <div class="lab-metric-card">
+          <div class="lmc-label">95th %ile DD</div>
+          <div class="lmc2-value" id="mc-p95-dd">—</div>
+        </div>
+      </div>
+      <div id="mc-verdict" class="mc-verdict"></div>
+    </div>
+
+    <!-- Trade table -->
+    <div class="card" style="margin:12px 24px 32px">
+      <div class="card-head">TRADES <span id="lab-trade-count" class="card-head-count"></span></div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Entry</th><th>Exit</th><th>Dir</th><th>Entry $</th><th>Exit $</th><th>P&amp;L</th><th>Result</th></tr></thead>
+          <tbody id="lab-trade-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div><!-- /tab-lab -->
 
 <!-- ════════════════════════════════════ STACK TAB ════════════════════════════ -->
 <div id="tab-stack" class="tab-panel">
@@ -632,6 +793,63 @@
       </div>
     </div>
     <div class="srg-source" id="risk-config-source"></div>
+  </div>
+
+  <!-- Strategy Status (VWAP / ORB / RSI2) -->
+  <div class="stack-section">
+    <div class="stack-section-header">
+      <h3 class="stack-section-title">Strategy Status</h3>
+      <button class="btn-secondary" onclick="fetchStrategyStatus()">↺ Refresh</button>
+    </div>
+    <div class="strat-status-grid">
+      <!-- VWAP Mean Reversion -->
+      <div class="strat-status-card">
+        <div class="strat-status-head">
+          <span class="strat-status-name">VWAP Mean Reversion</span>
+          <span id="vwap-enabled-chip" class="strat-enabled-chip">—</span>
+        </div>
+        <div class="strat-status-body">
+          <div class="ssb-row"><span class="ssb-lbl">Signal</span><span id="vwap-sig-val" class="ssb-val">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">MES</span><span id="vwap-close" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">VWAP</span><span id="vwap-level" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">Deviation</span><span id="vwap-dev" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">ADX</span><span id="vwap-adx" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">RSI</span><span id="vwap-rsi" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">Eligible</span><span id="vwap-eligible" class="ssb-val">—</span></div>
+        </div>
+        <div class="strat-status-note" id="vwap-signal-note">Awaiting data</div>
+      </div>
+      <!-- ORB -->
+      <div class="strat-status-card">
+        <div class="strat-status-head">
+          <span class="strat-status-name">Opening Range Breakout</span>
+          <span id="orb-enabled-chip" class="strat-enabled-chip">—</span>
+        </div>
+        <div class="strat-status-body">
+          <div class="ssb-row"><span class="ssb-lbl">Signal</span><span id="orb-sig-val" class="ssb-val">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">MES</span><span id="orb-close" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">ORH</span><span id="orb-orh" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">ORL</span><span id="orb-orl" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">SMA20</span><span id="orb-sma" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">Range</span><span id="orb-range" class="ssb-val mono">—</span></div>
+          <div class="ssb-row"><span class="ssb-lbl">Eligible</span><span id="orb-eligible" class="ssb-val">—</span></div>
+        </div>
+        <div class="strat-status-note" id="orb-signal-note">Opening range forms 9:30–10:30 ET</div>
+      </div>
+      <!-- RSI2 -->
+      <div class="strat-status-card">
+        <div class="strat-status-head">
+          <span class="strat-status-name">RSI(2) Daily</span>
+          <span id="rsi2-enabled-chip" class="strat-enabled-chip">—</span>
+        </div>
+        <div class="strat-status-body">
+          <div class="ssb-row"><span class="ssb-lbl">Signal</span><span id="rsi2-sig-val" class="ssb-val">—</span></div>
+        </div>
+        <div id="rsi2-screener" class="rsi2-screener-grid">
+          <div class="rsi2-loading">Awaiting data — fires at market close</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Pre-flight checklist -->
