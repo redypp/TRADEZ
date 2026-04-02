@@ -48,11 +48,12 @@ def prepare_donchian(df: pd.DataFrame, long_only: bool = False) -> pd.DataFrame:
     )
     df["atr"] = atr_ind.average_true_range()
 
-    # Signals
+    # Signals — true crossover: only fire on the bar price FIRST breaks the channel
+    prev_close = df["close"].shift(1)
     df["signal"] = 0
-    df.loc[df["close"] > df["dc_upper"], "signal"] = 1   # Breakout above 20-day high
+    df.loc[(df["close"] > df["dc_upper"]) & (prev_close <= df["dc_upper"]), "signal"] = 1
     if not long_only:
-        df.loc[df["close"] < df["dc_lower"], "signal"] = -1  # Breakdown below 20-day low
+        df.loc[(df["close"] < df["dc_lower"]) & (prev_close >= df["dc_lower"]), "signal"] = -1
 
     # Hard stop loss (ATR-based)
     df["stop_loss"] = np.where(
