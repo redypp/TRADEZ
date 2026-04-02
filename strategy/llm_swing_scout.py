@@ -634,7 +634,7 @@ async def _query_grok_swing(intel: dict, vix: float) -> dict:
         )
         resp = await asyncio.wait_for(
             client.chat.completions.create(
-                model="grok-4-1-fast-reasoning",
+                model="grok-4.20-0309-reasoning",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1000,

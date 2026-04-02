@@ -252,7 +252,7 @@ def _grok_breaking_news() -> Optional[dict]:
         )
         client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
         resp = client.chat.completions.create(
-            model="grok-4-1-fast-reasoning", temperature=0.1, max_tokens=200,
+            model="grok-4.20-0309-reasoning", temperature=0.1, max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
             timeout=12,
         )

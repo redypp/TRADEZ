@@ -681,7 +681,7 @@ def get_symbol_news(symbol: str, force: bool = False) -> dict:
 
         client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
         resp = client.chat.completions.create(
-            model="grok-4-1-fast-reasoning",
+            model="grok-4.20-0309-reasoning",
             messages=[{"role": "user", "content": _GROK_SYMBOL_NEWS_PROMPT.format(
                 symbol=symbol,
                 company_name=company_name,

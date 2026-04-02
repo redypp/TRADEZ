@@ -165,7 +165,7 @@ def _assess_trade_direction(headline: str) -> Optional[dict]:
         import json, re
         client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
         resp = client.chat.completions.create(
-            model="grok-4-1-fast-reasoning",
+            model="grok-4.20-0309-reasoning",
             messages=[{"role": "user", "content": _GROK_TRADE_PROMPT.format(headline=headline)}],
             temperature=0.1,
             max_tokens=150,
@@ -299,7 +299,7 @@ def _grok_news_scan() -> Optional[dict]:
         import openai
         client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
         resp = client.chat.completions.create(
-            model="grok-4-1-fast-reasoning",
+            model="grok-4.20-0309-reasoning",
             messages=[{"role": "user", "content": _GROK_NEWS_PROMPT}],
             temperature=0.1,
             max_tokens=200,
