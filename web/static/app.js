@@ -124,6 +124,8 @@ function switchStrategyTab(tabId, label) {
     swingView.style.display = tabId === 'swing' ? ''      : 'none';
   }
   activateTab(tabId);
+  // Refresh Lab controls to match the newly selected strategy
+  if (typeof labUpdateSelects === 'function') labUpdateSelects();
 }
 
 // ── Clock ─────────────────────────────────────────────────────────────────────
@@ -714,52 +716,53 @@ async function pollRest() {
 
 let labEquityChart = null;
 
-// Instrument options per strategy
+// Only BRT and SWING are supported in the Lab
 const LAB_INSTRUMENTS = {
-  BRT:      ['MES', 'ES'],
-  ORB:      ['MES', 'ES', 'SPY', 'QQQ'],
-  DONCHIAN: ['MGC', 'GC', 'SIL'],
-  RSI2:     ['SPY', 'QQQ', 'IWM', 'GLD'],
-  VWAP_MR:  ['MES', 'ES'],
+  BRT:   ['MES', 'ES'],
+  SWING: ['SPY', 'QQQ', 'AAPL', 'NVDA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA'],
 };
 
-// Timeframe options per strategy (label → value)
 const LAB_TIMEFRAMES = {
-  BRT:      [['5 min', '5min'], ['15 min', '15min'], ['1 hour', '1h']],
-  ORB:      [['5 min', '5min'], ['15 min', '15min'], ['1 hour', '1h']],
-  DONCHIAN: [['Daily', '1d']],
-  RSI2:     [['Daily', '1d']],
-  VWAP_MR:  [['5 min', '5min'], ['15 min', '15min']],
+  BRT:   [['5 min', '5min'], ['15 min', '15min'], ['1 hour', '1h']],
+  SWING: [['Daily', '1d']],
 };
 
-const LAB_DEFAULT_TF = {
-  BRT: '15min', ORB: '1h', DONCHIAN: '1d', RSI2: '1d', VWAP_MR: '5min',
-};
+const LAB_DEFAULT_TF = { BRT: '15min', SWING: '1d' };
 
-function labUpdateSelects(strat) {
+const LAB_LABELS = { BRT: 'BRT — Break & Retest', SWING: 'SWING — Momentum Swing' };
+
+// Get active strategy from the strategy tab button
+function labGetActiveStrategy() {
+  const stratBtn = $('strategy-tab-btn');
+  if (stratBtn && stratBtn.dataset.tab === 'swing') return 'SWING';
+  return 'BRT';
+}
+
+function labUpdateSelects() {
+  const strat = labGetActiveStrategy();
+
+  // Update badge label
+  const badge = $('lab-strategy-label');
+  if (badge) badge.textContent = LAB_LABELS[strat] || strat;
+
   // instruments
   const symSel = $('lab-symbol');
-  symSel.innerHTML = (LAB_INSTRUMENTS[strat] || [])
+  if (symSel) symSel.innerHTML = (LAB_INSTRUMENTS[strat] || [])
     .map(s => `<option value="${s}">${s}</option>`).join('');
 
   // timeframes
   const tfSel  = $('lab-timeframe');
   const defTf  = LAB_DEFAULT_TF[strat] || '';
-  tfSel.innerHTML = (LAB_TIMEFRAMES[strat] || [])
+  if (tfSel) tfSel.innerHTML = (LAB_TIMEFRAMES[strat] || [])
     .map(([label, val]) => `<option value="${val}"${val === defTf ? ' selected' : ''}>${label}</option>`)
     .join('');
 }
 
-// Update dropdowns when strategy changes
-$('lab-strategy') && $('lab-strategy').addEventListener('change', () => {
-  labUpdateSelects($('lab-strategy').value);
-});
-
-// Initialize dropdowns for the default strategy on page load
-$('lab-strategy') && labUpdateSelects($('lab-strategy').value);
+// Initialize on page load
+labUpdateSelects();
 
 $('lab-run-btn') && $('lab-run-btn').addEventListener('click', async () => {
-  const strategy  = $('lab-strategy').value;
+  const strategy  = labGetActiveStrategy();
   const symbol    = $('lab-symbol').value;
   const timeframe = $('lab-timeframe').value;
   const capital   = parseFloat($('lab-capital').value) || 10000;

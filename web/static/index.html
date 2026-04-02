@@ -624,20 +624,14 @@
 <div id="tab-lab" class="tab-panel">
   <div class="section-header">
     <h2>Strategy Lab</h2>
-    <p class="section-sub">Backtest any strategy on historical data + Monte Carlo simulation.</p>
+    <p class="section-sub">Backtest the active strategy on historical data + Monte Carlo simulation.</p>
   </div>
 
   <div class="lab-controls">
     <div class="lab-control-row">
       <div class="lab-field">
         <label class="lab-label">Strategy</label>
-        <select id="lab-strategy" class="lab-select">
-          <option value="BRT">BRT — Break &amp; Retest</option>
-          <option value="ORB">ORB — Opening Range</option>
-          <option value="DONCHIAN">DONCHIAN — Breakout</option>
-          <option value="RSI2">RSI2 — Mean Reversion</option>
-          <option value="VWAP_MR">VWAP — Mean Reversion</option>
-        </select>
+        <div id="lab-strategy-label" class="lab-strat-badge">BRT</div>
       </div>
       <div class="lab-field">
         <label class="lab-label">Symbol</label>

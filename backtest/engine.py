@@ -27,7 +27,7 @@ def run_backtest(df: pd.DataFrame, strategy: str, initial_capital: float = 3000.
         return _run_donchian(df, initial_capital)
     elif strategy == "BRT":
         return _run_brt(df, initial_capital)
-    elif strategy in ("VWAP_MR", "RSI2", "GENERIC"):
+    elif strategy in ("VWAP_MR", "RSI2", "SWING", "GENERIC"):
         return _run_generic(df, initial_capital, strategy)
     else:
         raise ValueError(f"Unknown strategy: {strategy}")

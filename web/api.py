@@ -479,6 +479,7 @@ def api_broker_status():
 # All strategies available in the Lab
 LAB_STRATEGIES = {
     "BRT":       {"name": "Break & Retest",         "instruments": ["MES", "ES"],                   "timeframes": ["5min", "15min", "1h"], "default_tf": "15min"},
+    "SWING":     {"name": "Momentum Swing",         "instruments": ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "TSLA"], "timeframes": ["1d"], "default_tf": "1d"},
     "ORB":       {"name": "Opening Range Breakout",  "instruments": ["MES", "ES", "SPY", "QQQ"],    "timeframes": ["5min", "15min", "1h"], "default_tf": "1h"},
     "DONCHIAN":  {"name": "Donchian Breakout",       "instruments": ["MGC", "GC", "SIL", "SI", "MCL"], "timeframes": ["1d"],             "default_tf": "1d"},
     "RSI2":      {"name": "RSI(2) Daily",            "instruments": ["SPY", "QQQ", "IWM", "GLD"],   "timeframes": ["1d"],                 "default_tf": "1d"},
@@ -577,6 +578,10 @@ def api_lab_run(req: LabRunRequest):
         if strategy == "BRT":
             from strategy.break_retest import prepare_break_retest
             df = prepare_break_retest(df)
+        elif strategy == "SWING":
+            from strategy.momentum_swing import MomentumSwingStrategy
+            swing = MomentumSwingStrategy()
+            df = swing.prepare(df)
         elif strategy == "ORB":
             from strategy.orb import prepare_orb
             df = prepare_orb(df)
@@ -599,7 +604,7 @@ def api_lab_run(req: LabRunRequest):
 
         # Map Lab strategies to backtest engine strategy names
         bt_strategy_map = {
-            "BRT": "BRT", "ORB": "ORB", "DONCHIAN": "DONCHIAN",
+            "BRT": "BRT", "SWING": "SWING", "ORB": "ORB", "DONCHIAN": "DONCHIAN",
             "RSI2": "RSI2", "VWAP_MR": "VWAP_MR",
         }
         bt_strategy = bt_strategy_map.get(strategy, "GENERIC")
