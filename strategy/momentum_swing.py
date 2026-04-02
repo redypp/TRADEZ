@@ -471,18 +471,24 @@ class MomentumSwingStrategy(AbstractStrategy):
             spy_raw = yf.download("SPY", start=start, end=end,
                                   interval="1d", progress=False, auto_adjust=True)
             if spy_raw is not None and len(spy_raw) >= 63:
+                if isinstance(spy_raw.columns, pd.MultiIndex):
+                    spy_raw.columns = spy_raw.columns.droplevel(1)
                 spy_close = spy_raw["Close"].values
                 spy_ret_63d = float(spy_close[-1] / spy_close[-63] - 1)
         except Exception:
             pass
 
         results = []
+        _fallback_pool = []   # stocks that didn't match any category
         for symbol in universe:
             try:
                 raw = yf.download(symbol, start=start, end=end,
                                   interval="1d", progress=False, auto_adjust=True)
                 if raw is None or len(raw) < 60:
                     continue
+                # yfinance may return MultiIndex columns like ('Close','AAPL')
+                if isinstance(raw.columns, pd.MultiIndex):
+                    raw.columns = raw.columns.droplevel(1)
                 raw.columns = [c.lower() for c in raw.columns]
 
                 # Core indicator prep (reuse prepare() for trade signals)
@@ -697,8 +703,79 @@ class MomentumSwingStrategy(AbstractStrategy):
                 except Exception:
                     pass
 
+                # 11. Oversold Bounce (works in any market regime)
+                # RSI < 30, or RSI2 < 10 (mean-reversion snap-back candidate)
+                try:
+                    rsi2 = None
+                    if len(df) >= 5:
+                        delta = df["close"].diff()
+                        gain2 = delta.clip(lower=0).rolling(2).mean()
+                        loss2 = (-delta.clip(upper=0)).rolling(2).mean()
+                        rs2 = gain2 / loss2.replace(0, 1e-9)
+                        rsi2_series = 100 - 100 / (1 + rs2)
+                        rsi2 = float(rsi2_series.iloc[-1])
+                    if rsi < 30 or (rsi2 is not None and rsi2 < 10):
+                        categories.append("OVERSOLD")
+                        tag = f"RSI14={rsi:.0f}"
+                        if rsi2 is not None:
+                            tag += f", RSI2={rsi2:.0f}"
+                        category_notes.append(
+                            f"Oversold bounce candidate: {tag}"
+                        )
+                except Exception:
+                    pass
+
+                # 12. EMA Reclaim (price was below EMAs, now crossing back above)
+                try:
+                    if len(df) >= 3:
+                        prev2 = df.iloc[-3]
+                        was_below = (float(prev2["close"]) < float(prev2["ema20"]))
+                        now_above = close > ema20
+                        if was_below and now_above and vol_ratio > 1.0:
+                            categories.append("EMA_RECLAIM")
+                            category_notes.append(
+                                f"Reclaiming 20 EMA (${ema20:.2f}) — early trend shift"
+                            )
+                except Exception:
+                    pass
+
+                # 13. Volume Spike (any direction — unusual institutional activity)
+                try:
+                    if vol_ratio >= 2.0 and avg_vol20 > 500_000:
+                        categories.append("VOL_SPIKE")
+                        category_notes.append(
+                            f"Volume ×{vol_ratio:.1f} avg — institutional interest"
+                        )
+                except Exception:
+                    pass
+
+                # 14. Relative Strength (outperforming SPY even when not in uptrend)
+                try:
+                    if spy_ret_63d is not None and len(df) >= 63:
+                        rs_vs_spy = (ret_63d / 100) - spy_ret_63d
+                        if rs_vs_spy > 0.05 and not in_uptrend and above_ema50:
+                            categories.append("RELATIVE_STRENGTH")
+                            category_notes.append(
+                                f"Holding up: +{rs_vs_spy*100:.1f}% vs SPY, "
+                                f"above 50 EMA despite market weakness"
+                            )
+                except Exception:
+                    pass
+
                 # ── Must qualify for at least one category ──────────────────────
                 if not categories:
+                    # Save for fallback pool (always-show mode)
+                    _fallback_pool.append({
+                        "symbol": symbol, "close": round(close, 2),
+                        "ema20": round(ema20, 2), "ema50": round(ema50, 2),
+                        "rsi": round(rsi, 1), "vol_ratio": round(vol_ratio, 2),
+                        "ret_5d": round(ret_5d, 2), "ret_20d": round(ret_20d, 2),
+                        "pct_from_52w_hi": round(pct_from_hi, 1),
+                        "above_ema20": above_ema20, "above_ema50": above_ema50,
+                        "active_signal": False, "stop": None, "target": None,
+                        "tp1_r": None, "tp2": None,
+                        "_sort_score": abs(ret_5d) + vol_ratio * 5,  # activity score
+                    })
                     continue
 
                 # ── Opportunity score (0–100) ────────────────────────────────────
@@ -713,6 +790,10 @@ class MomentumSwingStrategy(AbstractStrategy):
                 if "SQUEEZE"        in categories: score += 8
                 if "EMA50_BOUNCE"   in categories: score += 6
                 if "NEAR_52W_HIGH"  in categories: score += 5
+                if "OVERSOLD"       in categories: score += 12
+                if "EMA_RECLAIM"    in categories: score += 10
+                if "VOL_SPIKE"      in categories: score += 8
+                if "RELATIVE_STRENGTH" in categories: score += 7
                 if len(categories) > 1:            score += 8   # confluence bonus
                 if rsi < 70:                       score += 4
                 if vol_ratio > 1.5:                score += 4
@@ -727,8 +808,10 @@ class MomentumSwingStrategy(AbstractStrategy):
 
                 # Primary category (highest priority match)
                 _priority = ["VCP","BREAKOUT","HIGH_TIGHT_FLAG","FLAT_BASE",
-                             "EMA20_BOUNCE","RS_LEADER","ACCUMULATION",
-                             "SQUEEZE","EMA50_BOUNCE","NEAR_52W_HIGH"]
+                             "EMA20_BOUNCE","RS_LEADER","OVERSOLD",
+                             "EMA_RECLAIM","ACCUMULATION","VOL_SPIKE",
+                             "SQUEEZE","EMA50_BOUNCE","NEAR_52W_HIGH",
+                             "RELATIVE_STRENGTH"]
                 primary = next((c for c in _priority if c in categories), categories[0])
 
                 results.append({
@@ -763,6 +846,30 @@ class MomentumSwingStrategy(AbstractStrategy):
                 })
             except Exception as e:
                 logger.debug(f"[SWING screener] {symbol}: {e}")
+
+        # ── Fallback: always show at least 8 stocks ──────────────────────
+        MIN_RESULTS = 8
+        if len(results) < MIN_RESULTS and _fallback_pool:
+            _fallback_pool.sort(key=lambda x: -x["_sort_score"])
+            needed = MIN_RESULTS - len(results)
+            already = {r["symbol"] for r in results}
+            for fb in _fallback_pool:
+                if fb["symbol"] in already:
+                    continue
+                fb.pop("_sort_score", None)
+                fb.update({
+                    "setup_type": "NOTABLE",
+                    "categories": ["NOTABLE"],
+                    "category_notes": [
+                        f"Most active — {fb['ret_5d']:+.1f}% 5d, vol ×{fb['vol_ratio']:.1f}"
+                    ],
+                    "grade": "WATCH",
+                    "score": 30,
+                    "quality": "WATCH",
+                })
+                results.append(fb)
+                if len(results) >= MIN_RESULTS:
+                    break
 
         # Sort: active bot signals first, then by score desc
         results.sort(key=lambda x: (0 if x["active_signal"] else 1, -x["score"]))

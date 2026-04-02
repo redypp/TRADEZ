@@ -66,11 +66,15 @@ function activateTab(tabId) {
     const activeStrat = $('strategy-tab-btn')?.dataset?.tab || 'brt';
     if (activeStrat === 'swing') {
       fetchSwingScreener();
-      fetchSwingLLMIdeas();
+      fetchSwingLLMIdeas(true);   // auto-trigger scan if stale
+      startSwingPolling();
     } else {
       fetchScreener();
       fetchNews();
+      stopSwingPolling();
     }
+  } else {
+    stopSwingPolling();
   }
 }
 
@@ -600,7 +604,7 @@ function renderAdvisory(advisory) {
         <div class="advisory-spec-text">${advisory.grok_summary}</div>
       </div>` : ''}
       ${advisory.gpt4_summary ? `<div class="advisory-spec">
-        <div class="advisory-spec-label">GPT-4 · MACRO</div>
+        <div class="advisory-spec-label">GPT-5 · MACRO</div>
         <div class="advisory-spec-text">${advisory.gpt4_summary}</div>
       </div>` : ''}
     </div>` : '';
@@ -1017,10 +1021,10 @@ function renderInfraGrid(broker) {
     {
       icon: '🤖',
       title: 'LLM Advisory',
-      sub: 'Grok → GPT-4 → Claude pipeline',
+      sub: 'Grok → GPT-5 → Claude pipeline',
       rows: [
         { label: 'Grok (xAI)',   ok: broker.llm?.grok,      val: broker.llm?.grok      ? 'Key set' : 'Not set' },
-        { label: 'GPT-4',        ok: broker.llm?.openai,    val: broker.llm?.openai    ? 'Key set' : 'Not set' },
+        { label: 'GPT-5',        ok: broker.llm?.openai,    val: broker.llm?.openai    ? 'Key set' : 'Not set' },
         { label: 'Claude',       ok: broker.llm?.anthropic, val: broker.llm?.anthropic ? 'Key set' : 'Not set' },
       ],
     },
@@ -1125,6 +1129,21 @@ document.addEventListener('click', e => {
 });
 
 // ── Momentum Swing screener ───────────────────────────────────────────────────
+const SWING_SCREENER_POLL_MS = 60_000;   // technical screener every 60s
+const SWING_LLM_POLL_MS     = 90_000;   // LLM ideas every 90s
+let _swingScreenerInterval = null;
+let _swingLLMInterval = null;
+
+function startSwingPolling() {
+  stopSwingPolling();
+  _swingScreenerInterval = setInterval(fetchSwingScreener, SWING_SCREENER_POLL_MS);
+  _swingLLMInterval      = setInterval(() => fetchSwingLLMIdeas(true), SWING_LLM_POLL_MS);
+}
+function stopSwingPolling() {
+  if (_swingScreenerInterval) { clearInterval(_swingScreenerInterval); _swingScreenerInterval = null; }
+  if (_swingLLMInterval)      { clearInterval(_swingLLMInterval);      _swingLLMInterval = null; }
+}
+
 async function fetchSwingScreener() {
   try {
     const r = await fetch('/api/swing/screener');
@@ -1147,6 +1166,11 @@ const _CAT_META = {
   FLAT_BASE:      { label: 'FLAT BASE',     color: '#94a3b8', desc: 'Low-vol base after advance' },
   NEAR_52W_HIGH:  { label: 'NEAR 52W HI',  color: '#fbbf24', desc: 'Leadership — near 52-week high' },
   PULLBACK:       { label: '↩ PULLBACK',    color: '#60a5fa', desc: 'Pullback continuation' },
+  OVERSOLD:       { label: '📉 OVERSOLD',   color: '#ef4444', desc: 'RSI oversold bounce candidate' },
+  EMA_RECLAIM:    { label: '↗ EMA RECLAIM', color: '#34d399', desc: 'Reclaiming 20 EMA — early trend shift' },
+  VOL_SPIKE:      { label: '🔊 VOL SPIKE',  color: '#f472b6', desc: 'Unusual volume — institutional activity' },
+  RELATIVE_STRENGTH:{ label: 'REL STRENGTH',color: '#fb923c', desc: 'Outperforming SPY in weak market' },
+  NOTABLE:        { label: '👁 NOTABLE',     color: '#6b7280', desc: 'Most active in universe' },
 };
 
 function renderSwingScreener(d) {
@@ -1229,70 +1253,31 @@ function renderSwingScreener(d) {
 let _scoutPollInterval = null;
 let _scoutLastTs = null;
 
-async function fetchSwingLLMIdeas() {
+async function fetchSwingLLMIdeas(autoTrigger = false) {
   try {
     const r = await fetch('/api/swing/llm-ideas');
     if (!r.ok) return;
     const d = await r.json();
     renderSwingLLMIdeas(d);
+
+    // Auto-trigger a scan if no data or data is stale (> 2 hours)
+    if (autoTrigger) {
+      const ideas = d?.top_ideas || [];
+      const ts    = d?.timestamp;
+      const stale = !ts || (Date.now() - new Date(ts).getTime() > 2 * 60 * 60 * 1000);
+      if (ideas.length === 0 || stale) {
+        // Check if scan is already running
+        const sr = await fetch('/api/swing/llm-ideas/status');
+        const st = await sr.json();
+        if (!st.scanning) {
+          fetch('/api/swing/llm-ideas/scan', { method: 'POST' });
+        }
+      }
+    }
   } catch { /* silent */ }
 }
 
-async function triggerSwingScout() {
-  const btn = $('scout-scan-btn');
-  if (btn) { btn.textContent = 'Scanning…'; btn.disabled = true; btn.classList.add('scanning'); }
-  const body = $('swing-llm-ideas-body');
-  if (body) body.innerHTML = `
-    <div class="scout-loading">
-      <div class="scout-spinner"></div>
-      <div class="scout-loading-steps">
-        <div class="sls-step active" id="sls-1">Gathering market intelligence across 50+ stocks…</div>
-        <div class="sls-step" id="sls-2">Grok scanning news &amp; social sentiment…</div>
-        <div class="sls-step" id="sls-3">GPT-4 validating macro &amp; risk/reward…</div>
-        <div class="sls-step" id="sls-4">Claude ranking &amp; writing trade theses…</div>
-      </div>
-    </div>`;
-  try {
-    const r = await fetch('/api/swing/llm-ideas/scan', { method: 'POST' });
-    const d = await r.json();
-    if (d.status === 'already_running') {
-      if (body) body.innerHTML = '<div class="swing-empty">Scan already in progress — check back in a minute.</div>';
-      if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
-      return;
-    }
-  } catch {
-    if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
-    return;
-  }
-  // Animate loading steps while polling
-  _scoutLastTs = null;
-  let step = 1;
-  const stepTimings = [0, 8000, 20000, 40000];
-  stepTimings.forEach((ms, i) => {
-    setTimeout(() => {
-      document.querySelectorAll('.sls-step').forEach((el, j) => {
-        el.classList.toggle('active', j === i);
-        el.classList.toggle('done', j < i);
-      });
-    }, ms);
-  });
-  if (_scoutPollInterval) clearInterval(_scoutPollInterval);
-  _scoutPollInterval = setInterval(async () => {
-    try {
-      const sr = await fetch('/api/swing/llm-ideas/status');
-      const st = await sr.json();
-      if (!st.scanning) {
-        clearInterval(_scoutPollInterval);
-        _scoutPollInterval = null;
-        // Bust cache by fetching fresh
-        const fr = await fetch('/api/swing/llm-ideas?bust=' + Date.now());
-        const fd = await fr.json();
-        renderSwingLLMIdeas(fd);
-        if (btn) { btn.textContent = 'Scan Now'; btn.disabled = false; btn.classList.remove('scanning'); }
-      }
-    } catch { /* keep polling */ }
-  }, 3000);
-}
+// triggerSwingScout removed — LLM scout now auto-triggers via fetchSwingLLMIdeas
 
 function renderSwingLLMIdeas(d) {
   const body  = $('swing-llm-ideas-body');
@@ -1310,12 +1295,12 @@ function renderSwingLLMIdeas(d) {
       ? `· ${ideas.length} idea${ideas.length > 1 ? 's' : ''}${scanned ? ` · ${scanned} stocks scanned` : ''}`
       : scanned ? `· ${scanned} stocks scanned` : '';
   }
-  if (ts && d?.timestamp) ts.textContent = `Last scan: ${d.timestamp}`;
+  if (ts && d?.timestamp) ts.textContent = `Updated ${relTime(d.timestamp)}`;
 
   if (!ideas.length) {
     const scanMsg = scanned
-      ? `Scanned ${scanned} stocks — no high-conviction setups found. Next scan 16:05 ET.`
-      : 'LLM scan runs at 16:05 ET — real market intelligence scan will appear here.';
+      ? `Scanned ${scanned} stocks — no high-conviction setups right now. Auto-refreshing…`
+      : 'Scanning universe — LLM intelligence will appear shortly…';
     body.innerHTML = `<div class="swing-empty">${scanMsg}</div>`;
     return;
   }
@@ -1675,7 +1660,7 @@ function renderScreener(d) {
       rows.push(`
         <div class="spec-item">
           <div class="spec-header">
-            <span class="spec-logo gpt4">GPT-4</span>
+            <span class="spec-logo gpt4">GPT-5</span>
             ${q ? `<span class="${qCls}">${q}</span>` : ''}
             <span style="font-size:9px;color:var(--text3);margin-left:4px">MACRO · QUANT</span>
             ${macroOk != null ? `<span style="font-size:9px;margin-left:auto;color:${macroOk ? 'var(--green)' : 'var(--red)'}">${macroOk ? '✓ Macro ok' : '✗ Macro headwind'}</span>` : ''}

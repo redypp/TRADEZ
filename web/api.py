@@ -1136,7 +1136,7 @@ def api_swing_screener():
     import time as _time
     cache = getattr(api_swing_screener, "_cache", None)
     cache_ts = getattr(api_swing_screener, "_cache_ts", 0)
-    if cache is not None and (_time.time() - cache_ts) < 1800:   # 30-min cache (watchlist)
+    if cache is not None and (_time.time() - cache_ts) < 300:    # 5-min cache (live watchlist)
         return cache
     try:
         from strategy.momentum_swing import MomentumSwingStrategy
@@ -1164,7 +1164,7 @@ def api_swing_llm_ideas(bust: Optional[str] = None):
     import json as _json
     cache = getattr(api_swing_llm_ideas, "_cache", None)
     cache_ts = getattr(api_swing_llm_ideas, "_cache_ts", 0)
-    if bust is None and cache is not None and (_time.time() - cache_ts) < 600:
+    if bust is None and cache is not None and (_time.time() - cache_ts) < 120:  # 2-min cache
         return cache
     try:
         state = get_bot_state()
