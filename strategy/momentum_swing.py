@@ -141,6 +141,70 @@ def _next_resistance(df: pd.DataFrame, entry: float, atr: float,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Dynamic Universe — S&P 500 + popular momentum names
+# ─────────────────────────────────────────────────────────────────────────────
+
+_universe_cache: list | None = None
+_universe_cache_ts: float = 0
+
+def _get_scan_universe() -> list[str]:
+    """
+    Fetch a broad, liquid universe for the screener.
+    Pulls S&P 500 constituents from Wikipedia + adds popular momentum/growth
+    names that may not be in the index. Cached for 24 hours.
+    """
+    import time as _time
+    global _universe_cache, _universe_cache_ts
+
+    if _universe_cache and (_time.time() - _universe_cache_ts) < 86400:
+        return _universe_cache
+
+    symbols = set()
+
+    # 1. S&P 500 from Wikipedia
+    try:
+        sp500 = pd.read_html(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            attrs={"id": "constituents"},
+        )[0]
+        tickers = sp500["Symbol"].str.replace(".", "-", regex=False).tolist()
+        symbols.update(tickers)
+        logger.info(f"[SWING universe] Loaded {len(tickers)} S&P 500 tickers")
+    except Exception as e:
+        logger.warning(f"[SWING universe] Wikipedia S&P 500 fetch failed: {e}")
+
+    # 2. Extra popular/momentum names not always in S&P 500
+    _EXTRA = [
+        "COIN", "HOOD", "MSTR", "RBLX", "U", "IONQ", "RGTI", "QUBT",
+        "PLTR", "APP", "RDDT", "ARM", "SMCI", "CELH", "DUOL", "GRAB",
+        "SOFI", "AFRM", "UPST", "SE", "MELI", "NU", "SHOP", "SNOW",
+        "MDB", "DDOG", "NET", "ZS", "CRWD", "PANW",
+    ]
+    symbols.update(_EXTRA)
+
+    # 3. Fallback if Wikipedia failed
+    if len(symbols) < 50:
+        logger.warning("[SWING universe] Using fallback hardcoded universe")
+        _FALLBACK = [
+            "AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "AMD", "TSM",
+            "AVGO", "CRM", "ORCL", "NFLX", "TSLA", "JPM", "V", "MA", "UNH",
+            "LLY", "JNJ", "PG", "HD", "COST", "ABBV", "MRK", "PEP", "KO",
+            "ADBE", "INTC", "QCOM", "TXN", "AMAT", "LRCX", "KLAC", "MRVL",
+            "GS", "MS", "BAC", "WFC", "C", "BLK", "SCHW", "AXP",
+            "XOM", "CVX", "COP", "SLB", "CAT", "DE", "GE", "RTX",
+            "DIS", "CMCSA", "NFLX", "ABNB", "UBER", "BKNG",
+            "COIN", "HOOD", "SQ", "PYPL", "PLTR", "MSTR",
+        ]
+        symbols.update(_FALLBACK)
+
+    result = sorted(symbols)
+    _universe_cache = result
+    _universe_cache_ts = _time.time()
+    logger.info(f"[SWING universe] Total scan universe: {len(result)} stocks")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Strategy
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -454,26 +518,27 @@ class MomentumSwingStrategy(AbstractStrategy):
         import yfinance as yf
         from datetime import datetime, timedelta
 
-        # Broader universe for the watchlist (includes strategy symbols + extras)
-        _WATCHLIST_EXTRA = [
-            "TSLA", "UBER", "ABNB", "COIN", "HOOD", "SQ", "PYPL",
-            "MSTR", "RBLX", "U", "IONQ", "RGTI", "QUBT",
-            "GLD", "SLV", "TLT", "UNG",
-        ]
-        universe = list(dict.fromkeys(self.symbols + _WATCHLIST_EXTRA))
+        # ── Dynamic broad universe: S&P 500 + popular momentum names ──────────
+        universe = _get_scan_universe()
+        logger.info(f"[SWING screener] Scanning {len(universe)} stocks")
 
         end   = datetime.utcnow().strftime("%Y-%m-%d")
         start = (datetime.utcnow() - timedelta(days=220)).strftime("%Y-%m-%d")
 
-        # Fetch SPY for relative strength calculation
+        # ── Batch download all tickers at once (much faster than 1-by-1) ──────
+        all_tickers = universe + ["SPY"]
+        batch_raw = yf.download(
+            all_tickers, start=start, end=end,
+            interval="1d", progress=False, auto_adjust=True,
+            threads=True, group_by="ticker",
+        )
+
+        # Extract SPY for relative strength
         spy_ret_63d = None
         try:
-            spy_raw = yf.download("SPY", start=start, end=end,
-                                  interval="1d", progress=False, auto_adjust=True)
-            if spy_raw is not None and len(spy_raw) >= 63:
-                if isinstance(spy_raw.columns, pd.MultiIndex):
-                    spy_raw.columns = spy_raw.columns.droplevel(1)
-                spy_close = spy_raw["Close"].values
+            spy_df = batch_raw["SPY"].dropna(how="all") if "SPY" in batch_raw.columns.get_level_values(0) else None
+            if spy_df is not None and len(spy_df) >= 63:
+                spy_close = spy_df["Close"].values
                 spy_ret_63d = float(spy_close[-1] / spy_close[-63] - 1)
         except Exception:
             pass
@@ -482,13 +547,13 @@ class MomentumSwingStrategy(AbstractStrategy):
         _fallback_pool = []   # stocks that didn't match any category
         for symbol in universe:
             try:
-                raw = yf.download(symbol, start=start, end=end,
-                                  interval="1d", progress=False, auto_adjust=True)
+                # Pull this ticker's data from the batch result
+                try:
+                    raw = batch_raw[symbol].dropna(how="all").copy()
+                except (KeyError, TypeError):
+                    continue
                 if raw is None or len(raw) < 60:
                     continue
-                # yfinance may return MultiIndex columns like ('Close','AAPL')
-                if isinstance(raw.columns, pd.MultiIndex):
-                    raw.columns = raw.columns.droplevel(1)
                 raw.columns = [c.lower() for c in raw.columns]
 
                 # Core indicator prep (reuse prepare() for trade signals)
@@ -873,4 +938,4 @@ class MomentumSwingStrategy(AbstractStrategy):
 
         # Sort: active bot signals first, then by score desc
         results.sort(key=lambda x: (0 if x["active_signal"] else 1, -x["score"]))
-        return results[:30]   # cap at 30 for the dashboard
+        return results[:50]   # cap at 50 for the dashboard
