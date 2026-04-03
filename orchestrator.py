@@ -51,6 +51,7 @@ import strategy.vwap_reversion  # noqa: F401
 import strategy.donchian        # noqa: F401
 import strategy.orb             # noqa: F401
 import strategy.rsi2_daily      # noqa: F401
+import strategy.momentum_swing  # noqa: F401
 
 from strategy.registry import get_eligible, get_all
 
