@@ -730,13 +730,31 @@ def _execute_signal(
             except Exception:
                 pass
 
-        _router.place_bracket_order(
-            symbol    = symbol,
-            qty       = contracts,
-            sl_price  = sl_price,
-            tp_price  = tp_price,
-            direction = direction,
-        )
+        try:
+            _router.place_bracket_order(
+                symbol    = symbol,
+                qty       = contracts,
+                sl_price  = sl_price,
+                tp_price  = tp_price,
+                direction = direction,
+            )
+        except Exception as order_err:
+            logger.error(
+                f"[{symbol}] {strategy.name} ORDER FAILED: {order_err}. "
+                f"Trade NOT registered — no position opened."
+            )
+            try:
+                log_event(
+                    f"ORDER FAILED — {symbol} {direction_str}",
+                    "WARN",
+                    f"{strategy.name}: {order_err}",
+                )
+                notify_error(
+                    f"ORDER FAILED: {symbol} {direction_str} x{contracts} — {order_err}"
+                )
+            except Exception:
+                pass
+            return None
 
         # ── Register open trade for portfolio heat + breakeven tracking ───────
         try:

@@ -260,6 +260,70 @@ def place_bracket_order(
     return result
 
 
+def modify_stop_order(new_stop: float) -> bool:
+    """
+    Modify the working stop-loss order on MES to a new price.
+
+    Strategy: find the working Stop order for MES, cancel it, then place
+    a new standalone stop order at the updated price.
+
+    Returns True if successful, False on failure.
+    """
+    orders = _get("/order/list")
+    stop_order = None
+    for order in orders:
+        contract = order.get("contract", {})
+        symbol   = contract.get("name", "") if isinstance(contract, dict) else ""
+        status   = order.get("ordStatus", "")
+        ord_type = order.get("ordType", "")
+        if "MES" in symbol and status in ("Working", "PendingNew") and ord_type == "Stop":
+            stop_order = order
+            break
+
+    if stop_order is None:
+        logger.warning("modify_stop: no working MES stop order found")
+        return False
+
+    # Cancel the old stop
+    try:
+        _post("/order/cancelorder", {"orderId": stop_order["id"]})
+        logger.info(f"modify_stop: cancelled old stop order {stop_order['id']}")
+    except Exception as e:
+        logger.error(f"modify_stop: failed to cancel old stop: {e}")
+        return False
+
+    # Determine direction from the stop order action
+    action = stop_order.get("action", "Sell")  # stop on a long = Sell
+    qty    = stop_order.get("orderQty", 1)
+    contract_id = stop_order.get("contractId")
+
+    if contract_id is None:
+        contract_id = _get_mes_contract_id()
+
+    # Place new stop order at the updated price
+    body = {
+        "accountId":  _session["account_id"],
+        "accountSpec": _session["account_spec"],
+        "contractId": contract_id,
+        "action":     action,
+        "orderQty":   qty,
+        "orderType":  "Stop",
+        "stopPrice":  round(new_stop, 2),
+        "timeInForce": "GTC",
+    }
+
+    try:
+        result = _post("/order/placeorder", body)
+        if result.get("failureReason"):
+            logger.error(f"modify_stop: new stop order failed: {result['failureReason']}")
+            return False
+        logger.info(f"modify_stop: new stop placed at {new_stop:.2f} (order {result.get('orderId', '?')})")
+        return True
+    except Exception as e:
+        logger.error(f"modify_stop: failed to place new stop: {e}")
+        return False
+
+
 def cancel_all_mes_orders() -> None:
     """Cancel all open MES orders."""
     orders = _get("/order/list")

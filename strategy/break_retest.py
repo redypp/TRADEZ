@@ -245,7 +245,7 @@ def _detect_brt_signals(df: pd.DataFrame, long_only: bool,
         if vol > 0 and vol_ma > 0:
             vol_ok = vol >= settings.BRT_VOLUME_THRESHOLD * vol_ma
         else:
-            vol_ok = True  # volume data absent → skip check
+            vol_ok = False  # volume data absent → require confirmation
 
         # ── State: watching for retest ────────────────────────────────
         if state in ("WATCHING_LONG", "WATCHING_SHORT"):

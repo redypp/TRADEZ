@@ -387,6 +387,7 @@ def check_all(
     _check_equity_floor(account_equity)
     _check_max_trades_today(trades_today)
     _check_open_position(symbol, open_position_size)
+    _check_max_open_positions()
     _check_portfolio_heat(account_equity, strategy_type=strategy_type)
     point_val  = point_value or _get_point_value(symbol)
     contracts  = _check_position_size(symbol, signal, account_equity, point_val,
@@ -431,6 +432,18 @@ def _check_fundamentals(fundamentals: dict) -> None:
 
     if regime == "CAUTIOUS":
         logger.warning("CAUTIOUS regime — proceeding but staying selective")
+
+
+def _check_max_open_positions() -> None:
+    """Block if total open positions across all symbols >= MAX_OPEN_POSITIONS."""
+    max_pos = getattr(settings, "MAX_OPEN_POSITIONS", 3)
+    current = len(OPEN_TRADES)
+    if current >= max_pos:
+        raise RiskBlock(
+            f"Max open positions reached: {current}/{max_pos}. "
+            f"Open: {list(OPEN_TRADES.keys())}. "
+            f"Close an existing position before entering a new one."
+        )
 
 
 def _check_open_position(symbol: str, open_position_size: int) -> None:

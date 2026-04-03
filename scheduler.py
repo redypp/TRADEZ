@@ -36,6 +36,7 @@ import sys
 import threading
 import time
 from datetime import datetime, date
+from pathlib import Path
 
 os.makedirs("logs", exist_ok=True)
 
@@ -54,7 +55,7 @@ from risk.manager import (
     RiskBlock, check_daily_drawdown,
     load_open_trades_from_db, check_breakeven_moves,
 )
-from execution.router import router as _router
+from execution.router import router as _router, FUTURES_SYMBOLS
 from monitor.alerts import (
     notify_signal_check,
     notify_daily_summary,
@@ -237,11 +238,20 @@ def _init_session_if_new_day(equity: float) -> None:
 
 # ─── Main hourly signal job ───────────────────────────────────────────────────
 
+_HALT_FILE = Path(__file__).parent / "HALT"
+
+
+def is_halted() -> bool:
+    """Check if the kill switch is active (HALT file exists in project root)."""
+    return _HALT_FILE.exists()
+
+
 def run_signal_check() -> None:
     """
     Core job. Runs every 15 min, Mon–Fri, 9am–4pm ET.
 
     Sequence:
+        0. Check kill switch (HALT file) — if present, flatten and skip
         1. Authenticate all brokers
         2. Get account equity → init session if new day
         3. Check daily drawdown (raises RiskBlock if hit)
@@ -251,6 +261,22 @@ def run_signal_check() -> None:
         6. Update dashboard state (SQLite) + send Telegram summary
         7. Run AI advisory in background thread
     """
+    # ── Kill switch ───────────────────────────────────────────────────────
+    if is_halted():
+        logger.critical("HALT file detected — emergency stop active. Remove HALT file to resume.")
+        try:
+            _router.connect_all()
+            results = _router.close_all_positions()
+            if results:
+                logger.critical(f"HALT: flattened {len(results)} position(s)")
+                notify_error(f"🛑 HALT ACTIVE — flattened {len(results)} position(s). Remove HALT file to resume.")
+            else:
+                notify_error("🛑 HALT ACTIVE — no positions to close. Remove HALT file to resume.")
+        except Exception as e:
+            logger.error(f"HALT flatten failed: {e}")
+            notify_error(f"🛑 HALT ACTIVE but flatten failed: {e}")
+        return
+
     logger.info("─── Signal check starting ───")
     try:
         log_event("Signal check started", "INFO")
@@ -492,6 +518,47 @@ def run_signal_check() -> None:
         logger.info("─── Signal check complete ───")
 
 
+# ─── EOD flatten intraday positions ──────────────────────────────────────────
+
+def run_eod_flatten() -> None:
+    """
+    Fires at 15:55 ET — 5 min before futures close.
+    Flattens ALL intraday positions (futures) so nothing carries overnight.
+    Swing/daily positions on Alpaca are left open intentionally.
+    """
+    logger.info("─── EOD flatten — closing intraday positions ───")
+    try:
+        _ensure_auth()
+        from risk.manager import OPEN_TRADES, close_trade
+
+        closed = []
+        for symbol in list(FUTURES_SYMBOLS):
+            try:
+                pos = _router.get_position(symbol)
+                if pos != 0:
+                    _router.close_position(symbol)
+                    if symbol in OPEN_TRADES:
+                        close_trade(symbol)
+                    closed.append(f"{symbol} ({pos:+d})")
+                    logger.warning(f"EOD flatten: closed {symbol} ({pos:+d})")
+            except Exception as e:
+                logger.error(f"EOD flatten failed for {symbol}: {e}")
+
+        if closed:
+            msg = f"EOD flatten: closed {', '.join(closed)}"
+            try:
+                log_event(msg, "TRADE")
+                notify_error(msg)
+            except Exception:
+                pass
+        else:
+            logger.info("EOD flatten: no intraday positions to close")
+
+    except Exception as e:
+        logger.exception(f"EOD flatten error: {e}")
+        notify_error(f"EOD flatten failed: {e}")
+
+
 # ─── End-of-day summary job ───────────────────────────────────────────────────
 
 def run_eod_summary() -> None:
@@ -505,7 +572,11 @@ def run_eod_summary() -> None:
 
         # Cancel any unfilled orders left open (shouldn't happen with brackets,
         # but safety net in case of partial fills or manual interference).
-        _router.cancel_all_orders("MES")
+        for sym in list(FUTURES_SYMBOLS):
+            try:
+                _router.cancel_all_orders(sym)
+            except Exception:
+                pass
 
         equity = _safe_get_equity()
         if equity <= 0:
@@ -674,6 +745,23 @@ def main() -> None:
     except Exception as e:
         logger.warning(f"Could not restore open trades on startup: {e}")
 
+    # Reconcile with broker — clear any trades the broker already closed
+    # while we were offline (SL/TP filled, manual close, etc.)
+    try:
+        from risk.manager import clear_stale_open_trades, OPEN_TRADES
+        if OPEN_TRADES:
+            _router.connect_all()
+            live_positions: dict[str, int] = {}
+            for sym in list(OPEN_TRADES.keys()):
+                try:
+                    live_positions[sym] = _router.get_position(sym)
+                except Exception:
+                    pass  # can't check — leave it in registry (safe side)
+            if live_positions:
+                clear_stale_open_trades(live_positions)
+    except Exception as e:
+        logger.warning(f"Startup position reconciliation failed (non-fatal): {e}")
+
     from strategy.registry import get_all as _get_all_strats
     enabled = [s.name for s in _get_all_strats() if settings.STRATEGY_ENABLED.get(s.name)]
     logger.info("=" * 55)
@@ -713,6 +801,19 @@ def main() -> None:
         ),
         id   = "eod_summary",
         name = "End-of-Day Summary",
+    )
+
+    # EOD flatten intraday positions at 15:55 ET (5 min before futures close)
+    scheduler.add_job(
+        func    = run_eod_flatten,
+        trigger = CronTrigger(
+            day_of_week = "mon-fri",
+            hour        = "15",
+            minute      = "55",
+            timezone    = ET,
+        ),
+        id   = "eod_flatten",
+        name = "EOD Flatten Intraday Positions",
     )
 
     # EOD Momentum Swing scan at 16:05 ET (after daily candles settle)

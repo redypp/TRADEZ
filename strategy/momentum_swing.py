@@ -381,6 +381,8 @@ class MomentumSwingStrategy(AbstractStrategy):
         if breakout_signal:
             stop  = support - 0.25 * current_atr   # below consolidation base
             risk  = float(today["close"]) - stop
+            if risk <= 0:
+                return df  # invalid setup — stop above entry
             # Use nearest prior swing high as TP1 if it falls in 1.5–4R; else 2R
             # (breakouts tend to run — prefer 2R default over 1.5R)
             key_level = _next_resistance(df.iloc[:-1], float(today["close"]),
@@ -420,6 +422,8 @@ class MomentumSwingStrategy(AbstractStrategy):
         if pullback_signal:
             stop  = float(today["low"]) - 0.1 * current_atr   # below pullback low
             risk  = float(today["close"]) - stop
+            if risk <= 0:
+                return df  # invalid setup — stop above entry
             # Pullback: look for prior high as TP1 ceiling (1.0–2.5R range)
             key_level = _next_resistance(df.iloc[:-1], float(today["close"]),
                                          current_atr, risk=risk, min_r=1.0, max_r=2.5)

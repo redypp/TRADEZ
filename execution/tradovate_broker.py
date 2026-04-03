@@ -158,6 +158,11 @@ class TradovateBroker(BrokerBase):
             "raw":       result,
         }
 
+    def modify_stop(self, symbol: str, new_stop: float) -> bool:
+        """Move the working stop-loss order to new_stop via cancel + replace."""
+        from execution import tradovate
+        return tradovate.modify_stop_order(new_stop)
+
     def cancel_all_orders(self, symbol: str) -> int:
         """Cancel all working orders for symbol. Returns 0 (count not available from API)."""
         from execution import tradovate
