@@ -730,31 +730,85 @@ def _execute_signal(
             except Exception:
                 pass
 
-        try:
-            _router.place_bracket_order(
-                symbol    = symbol,
-                qty       = contracts,
-                sl_price  = sl_price,
-                tp_price  = tp_price,
-                direction = direction,
+        # ── Split into main + runner for SWING strategy ────────────────────────
+        tp2_price   = float(sig.get("take_profit_2") or 0)
+        runner_pct  = getattr(settings, "SWING_RUNNER_PCT", 0.25)
+        use_runner  = (
+            strategy.name == "SWING"
+            and tp2_price > 0
+            and runner_pct > 0
+            and contracts >= 2  # need at least 2 shares to split
+        )
+
+        if use_runner:
+            runner_qty = max(1, int(round(contracts * runner_pct)))
+            main_qty   = contracts - runner_qty
+
+            logger.info(
+                f"[{symbol}] SWING split: {main_qty} shares → TP1={tp_price:.2f}, "
+                f"{runner_qty} runner → TP2={tp2_price:.2f}"
             )
-        except Exception as order_err:
-            logger.error(
-                f"[{symbol}] {strategy.name} ORDER FAILED: {order_err}. "
-                f"Trade NOT registered — no position opened."
-            )
+
             try:
-                log_event(
-                    f"ORDER FAILED — {symbol} {direction_str}",
-                    "WARN",
-                    f"{strategy.name}: {order_err}",
+                # Main portion — exits at TP1
+                _router.place_bracket_order(
+                    symbol    = symbol,
+                    qty       = main_qty,
+                    sl_price  = sl_price,
+                    tp_price  = tp_price,
+                    direction = direction,
                 )
-                notify_error(
-                    f"ORDER FAILED: {symbol} {direction_str} x{contracts} — {order_err}"
+                # Runner portion — rides to TP2
+                _router.place_bracket_order(
+                    symbol    = symbol,
+                    qty       = runner_qty,
+                    sl_price  = sl_price,
+                    tp_price  = tp2_price,
+                    direction = direction,
                 )
-            except Exception:
-                pass
-            return None
+            except Exception as order_err:
+                logger.error(
+                    f"[{symbol}] {strategy.name} ORDER FAILED: {order_err}. "
+                    f"Trade NOT registered — no position opened."
+                )
+                try:
+                    log_event(
+                        f"ORDER FAILED — {symbol} {direction_str}",
+                        "WARN",
+                        f"{strategy.name}: {order_err}",
+                    )
+                    notify_error(
+                        f"ORDER FAILED: {symbol} {direction_str} x{contracts} — {order_err}"
+                    )
+                except Exception:
+                    pass
+                return None
+        else:
+            try:
+                _router.place_bracket_order(
+                    symbol    = symbol,
+                    qty       = contracts,
+                    sl_price  = sl_price,
+                    tp_price  = tp_price,
+                    direction = direction,
+                )
+            except Exception as order_err:
+                logger.error(
+                    f"[{symbol}] {strategy.name} ORDER FAILED: {order_err}. "
+                    f"Trade NOT registered — no position opened."
+                )
+                try:
+                    log_event(
+                        f"ORDER FAILED — {symbol} {direction_str}",
+                        "WARN",
+                        f"{strategy.name}: {order_err}",
+                    )
+                    notify_error(
+                        f"ORDER FAILED: {symbol} {direction_str} x{contracts} — {order_err}"
+                    )
+                except Exception:
+                    pass
+                return None
 
         # ── Register open trade for portfolio heat + breakeven tracking ───────
         try:

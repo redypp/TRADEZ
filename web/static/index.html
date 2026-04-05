@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>TRADEZ — MES Strategy Dashboard</title>
+  <title>TRADEZ — Swing Trading Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -16,11 +16,11 @@
   <div class="tb-brand">
     <div class="tb-logo"></div>
     <span class="tb-name">TRADEZ</span>
-    <span class="tb-ticker" id="tb-ticker">MES · BRT</span>
+    <span class="tb-ticker" id="tb-ticker">US EQUITIES · SWING</span>
   </div>
 
   <nav class="tb-tabs">
-    <button class="tab-btn active" id="strategy-tab-btn" data-tab="brt">Strategy</button>
+    <button class="tab-btn active" id="strategy-tab-btn" data-tab="swing">Strategy</button>
     <button class="tab-btn" data-tab="screener">AI Screener</button>
     <button class="tab-btn" data-tab="journal">Journal</button>
     <button class="tab-btn" data-tab="lab">Lab</button>
@@ -31,24 +31,25 @@
     <div class="strategy-selector" id="strategy-selector">
       <button class="strategy-btn" id="strategy-btn" onclick="toggleStrategyMenu()">
         <span class="strat-dot" id="strat-live-dot"></span>
-        <span class="strat-label" id="strat-label">BRT · MES</span>
+        <span class="strat-label" id="strat-label">Momentum Swing · Equities</span>
         <svg class="strat-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       </button>
       <div class="strategy-menu" id="strategy-menu">
-        <div class="sm-header">SWITCH STRATEGY</div>
-        <button class="sm-item active" id="sm-brt" data-strat="BRT" onclick="switchStrategyTab('brt','BRT · MES')">
-          <div class="sm-item-dot inactive" title="Inactive"></div>
-          <div>
-            <div class="sm-item-name">Break &amp; Retest <span class="sm-live-badge" style="display:none">LIVE</span></div>
-            <div class="sm-item-sub">MES · 15-min · Trend-follow</div>
-          </div>
-        </button>
-        <div class="sm-divider"></div>
-        <button class="sm-item" id="sm-swing" data-strat="SWING" onclick="switchStrategyTab('swing','Momentum Swing · Equities')">
+        <div class="sm-header">PRIMARY</div>
+        <button class="sm-item active" id="sm-swing" data-strat="SWING" onclick="switchStrategyTab('swing','Momentum Swing · Equities')">
           <div class="sm-item-dot inactive" title="Inactive"></div>
           <div>
             <div class="sm-item-name">Momentum Swing <span class="sm-live-badge" style="display:none">LIVE</span></div>
             <div class="sm-item-sub">US Equities · Daily · Breakout &amp; Pullback</div>
+          </div>
+        </button>
+        <div class="sm-divider"></div>
+        <div class="sm-header" style="opacity:0.5;font-size:10px">ALT STRATEGIES</div>
+        <button class="sm-item" id="sm-brt" data-strat="BRT" onclick="switchStrategyTab('brt','BRT · MES')">
+          <div class="sm-item-dot inactive" title="Inactive"></div>
+          <div>
+            <div class="sm-item-name">Break &amp; Retest <span class="sm-live-badge" style="display:none">LIVE</span></div>
+            <div class="sm-item-sub">MES · 15-min · Trend-follow</div>
           </div>
         </button>
       </div>
@@ -60,7 +61,7 @@
 </header>
 
 <!-- ══════════════════════════════════════ TAB: BRT -->
-<div id="tab-brt" class="tab-panel active">
+<div id="tab-brt" class="tab-panel">
 
   <!-- Regime banner -->
   <div id="regime-bar" class="regime-bar">
@@ -300,7 +301,7 @@
 <!-- ══════════════════════════════════════ TAB: SCREENER -->
 <div id="tab-screener" class="tab-panel">
 
-<div id="screener-brt-view">
+<div id="screener-brt-view" style="display:none">
   <!-- Bias Hero ────────────────────────────────────────────── -->
   <div class="screener-hero" id="screener-hero">
     <button class="screener-refresh-btn" id="screener-refresh-btn" onclick="screenerRefresh()" title="Force-fetch fresh data">⟳ Refresh</button>
@@ -411,7 +412,7 @@
 </div><!-- /screener-brt-view -->
 
 <!-- ── Swing Screener View (shown when Swing strategy is active) ── -->
-<div id="screener-swing-view" style="display:none">
+<div id="screener-swing-view">
 
   <!-- LLM Scout -->
   <div class="card" style="margin-bottom:12px">
@@ -483,7 +484,7 @@
 
 
 <!-- ══════════════════════════════════════ TAB: MOMENTUM SWING -->
-<div id="tab-swing" class="tab-panel">
+<div id="tab-swing" class="tab-panel active">
 
   <!-- Regime banner (same layout as BRT) -->
   <div id="swing-regime-bar" class="regime-bar">
@@ -504,23 +505,22 @@
     </div>
   </div>
 
-  <!-- Status row -->
+  <!-- Portfolio overview row -->
   <div class="live-grid">
     <div class="lg-section">
-      <div class="section-label">BOT STATUS</div>
-      <div class="status-block">
-        <div class="sb-main">
-          <div id="sw-state-pill" class="state-pill neutral">
-            <span class="sp-dot"></span>
-            <span id="sw-state-text">SCANNING</span>
-          </div>
-          <div id="sw-watch-line" class="watch-line">EOD scan — daily signals</div>
-        </div>
-        <div class="sb-meta">
-          <div class="sbm-row"><span class="sbm-lbl">Universe</span><span class="sbm-val">~30 liquid US stocks</span></div>
-          <div class="sbm-row"><span class="sbm-lbl">Scan runs</span><span class="sbm-val">After market close</span></div>
-          <div class="sbm-row"><span class="sbm-lbl">Hold period</span><span class="sbm-val">Days to weeks</span></div>
-        </div>
+      <div class="section-label">PORTFOLIO VALUE</div>
+      <div class="big-number mono" id="sw-equity-big">$—</div>
+      <div class="pnl-sub">
+        <span id="sw-day-pnl" class="ps-wins">+$0.00</span>
+        <span id="sw-day-pnl-pct" style="opacity:0.6;margin-left:6px">(0.00%)</span>
+      </div>
+    </div>
+
+    <div class="lg-section">
+      <div class="section-label">OPEN POSITIONS</div>
+      <div class="big-number mono" id="sw-pos-count">0</div>
+      <div class="pnl-sub">
+        <span id="sw-buying-power" style="opacity:0.6">BP: $—</span>
       </div>
     </div>
 
@@ -539,19 +539,89 @@
       <div class="big-number mono">0.75%</div>
       <div class="price-detail">
         <span class="pd-lbl">TP1</span><span class="pd-val mono" style="color:var(--green)">1.5R</span>
-        <span class="pd-lbl" style="margin-left:8px">TP2</span><span class="pd-val mono" style="color:var(--green)">3R</span>
-      </div>
-    </div>
-
-    <div class="lg-section">
-      <div class="section-label">FILTERS</div>
-      <div class="ind-list">
-        <div class="il-row"><span class="il-lbl">EMA Trend</span><span class="il-badge ok">ACTIVE</span></div>
-        <div class="il-row"><span class="il-lbl">Volume ×1.5</span><span class="il-badge ok">ACTIVE</span></div>
-        <div class="il-row"><span class="il-lbl">VIX &lt; 35</span><span id="sw-vix-filter" class="il-badge">—</span></div>
+        <span class="pd-lbl" style="margin-left:8px">TP2</span><span class="pd-val mono" style="color:var(--green)">3R runner</span>
       </div>
     </div>
   </div><!-- /live-grid -->
+
+  <!-- Lower section: positions, equity curve, activity -->
+  <div class="live-lower">
+
+    <!-- Open Positions -->
+    <div class="card">
+      <div class="card-head">OPEN POSITIONS</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Symbol</th><th>Side</th><th>Qty</th>
+              <th>Avg Entry</th><th>Price</th><th>P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="sw-positions-tbody">
+            <tr><td colspan="6" style="text-align:center;opacity:0.4">No open positions</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Swing Equity Curve -->
+    <div class="card">
+      <div class="card-head">EQUITY CURVE</div>
+      <div class="chart-wrap">
+        <canvas id="swing-equity-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Filters & Status -->
+    <div class="card">
+      <div class="card-head">FILTERS &amp; STATUS</div>
+      <div class="ind-list" style="padding:12px">
+        <div class="il-row"><span class="il-lbl">EMA Trend</span><span class="il-badge ok">ACTIVE</span></div>
+        <div class="il-row"><span class="il-lbl">Volume ×1.5</span><span class="il-badge ok">ACTIVE</span></div>
+        <div class="il-row"><span class="il-lbl">VIX &lt; 35</span><span id="sw-vix-filter" class="il-badge">—</span></div>
+        <div class="il-row"><span class="il-lbl">Runner</span><span class="il-badge ok">25% → TP2</span></div>
+      </div>
+      <div style="padding:0 12px 12px">
+        <div class="sbm-row"><span class="sbm-lbl">Universe</span><span class="sbm-val">20 liquid US stocks</span></div>
+        <div class="sbm-row"><span class="sbm-lbl">Scan runs</span><span class="sbm-val">After market close</span></div>
+        <div class="sbm-row"><span class="sbm-lbl">Hold period</span><span class="sbm-val">Days to weeks</span></div>
+      </div>
+    </div>
+
+  </div><!-- /live-lower -->
+
+  <!-- Recent Swing Trades -->
+  <div class="card" style="margin-top:12px">
+    <div class="card-head">
+      RECENT SWING TRADES
+      <button class="small-link-btn" onclick="activateTab('journal')">Full Journal →</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Time</th><th>Symbol</th><th>Dir</th>
+            <th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="sw-trades-tbody">
+          <tr><td colspan="7" style="text-align:center;opacity:0.4">No swing trades yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Active Setups Preview -->
+  <div class="card" style="margin-top:12px">
+    <div class="card-head">
+      ACTIVE SETUPS
+      <button class="small-link-btn" onclick="activateTab('screener')">View All in Screener →</button>
+    </div>
+    <div id="sw-setups-preview" style="padding:12px">
+      <div style="text-align:center;opacity:0.4">Run screener to see setups</div>
+    </div>
+  </div>
 
 </div><!-- /tab-swing -->
 
@@ -560,6 +630,11 @@
   <div class="section-header">
     <h2>Trade Journal</h2>
     <p class="section-sub">Every trade logged by the bot — entry, exit, P&amp;L, and confluence checks.</p>
+    <div class="journal-filter" style="margin-top:8px">
+      <button class="jf-btn active" data-jf="SWING" onclick="setJournalFilter('SWING')">SWING</button>
+      <button class="jf-btn" data-jf="BRT" onclick="setJournalFilter('BRT')">BRT</button>
+      <button class="jf-btn" data-jf="ALL" onclick="setJournalFilter('ALL')">All</button>
+    </div>
   </div>
 
   <!-- Stats bar -->

@@ -77,8 +77,14 @@ function activateTab(tabId) {
   const panel = $(`tab-${tabId}`);
   if (panel) panel.classList.add('active');
   if (tabId === 'journal') renderJournal(window._lastTrades);
+  // Swing portfolio polling when swing tab is active
+  if (tabId === 'swing') {
+    startSwingPortfolioPolling();
+  } else {
+    stopSwingPortfolioPolling();
+  }
   if (tabId === 'screener') {
-    const activeStrat = $('strategy-tab-btn')?.dataset?.tab || 'brt';
+    const activeStrat = $('strategy-tab-btn')?.dataset?.tab || 'swing';
     if (activeStrat === 'swing') {
       fetchSwingScreener();
       fetchSwingLLMIdeas(true);   // auto-trigger scan if stale
@@ -428,11 +434,31 @@ function renderFilters(s, settings) {
   }).join('');
 }
 
+// ── Journal Strategy Filter ──────────────────────────────────────────────────
+let _journalFilter = 'SWING';  // default to SWING
+
+function setJournalFilter(filter) {
+  _journalFilter = filter;
+  document.querySelectorAll('.jf-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.jf === filter);
+  });
+  renderJournal(window._lastTrades);
+}
+
 // ── Render: Journal ───────────────────────────────────────────────────────────
 function renderJournal(trades) {
   if (!$('tab-journal')?.classList.contains('active')) return; // only render if visible
 
   const cards = $('journal-cards'); if (!cards) return;
+
+  // Apply strategy filter
+  if (trades && _journalFilter !== 'ALL') {
+    trades = trades.filter(t => {
+      const strat = (t.strategy || t.level_type || '').toUpperCase();
+      return strat.includes(_journalFilter);
+    });
+  }
+
   if (!trades?.length) {
     cards.innerHTML = '<div class="journal-empty">No trades recorded yet.</div>';
     return;
@@ -681,6 +707,7 @@ function render(data) {
   renderRegime(data.regime, data.state);
   renderFilters(data.state, data.settings);
   renderTrades(data.trades, data.summary);
+  renderSwingTrades(data.trades);
   renderFeed(data.events);
   updateChart(data.equity);
   renderJournal(data.trades);
@@ -1045,14 +1072,8 @@ function renderInfraGrid(broker) {
 
   const cards = [
     {
-      icon: '🖥',
-      title: 'VPS',
-      sub: `${broker.vps?.provider || 'DigitalOcean'} · ${broker.vps?.host || '137.184.48.18'}`,
-      rows: (broker.vps?.services || []).map(s => ({ label: s, ok: true, val: 'Running' })),
-    },
-    {
       icon: '📈',
-      title: 'Alpaca',
+      title: 'Alpaca — PRIMARY',
       sub: `US Equities · ${broker.alpaca?.mode || 'Paper'} · Momentum Swing`,
       rows: [
         { label: 'Credentials',    ok: broker.alpaca?.credentials_set, val: broker.alpaca?.credentials_set ? 'Set' : 'Not set' },
@@ -1061,9 +1082,15 @@ function renderInfraGrid(broker) {
       ],
     },
     {
+      icon: '🖥',
+      title: 'VPS',
+      sub: `${broker.vps?.provider || 'DigitalOcean'} · ${broker.vps?.host || '137.184.48.18'}`,
+      rows: (broker.vps?.services || []).map(s => ({ label: s, ok: true, val: 'Running' })),
+    },
+    {
       icon: '⚡',
-      title: 'Tradovate',
-      sub: 'Futures · MES / MGC · BRT strategy',
+      title: 'Tradovate — Secondary',
+      sub: 'Futures · MES / MGC · Alt strategies',
       rows: [
         { label: 'Credentials', ok: broker.tradovate?.credentials_set, val: broker.tradovate?.credentials_set ? `Set (${broker.tradovate.username})` : 'Not set — pending' },
         { label: 'Strategy live', ok: !!strat.BRT, val: strat.BRT ? 'LIVE' : 'Inactive' },
@@ -1984,10 +2011,159 @@ setInterval(() => {
   if (active?.dataset?.tab === 'screener') fetchNews();
 }, NEWS_POLL_MS);
 
+// ── Swing Portfolio ──────────────────────────────────────────────────────────
+let swingEquityChart = null;
+let _swingPortfolioInterval = null;
+
+function initSwingChart() {
+  const ctx = $('swing-equity-chart')?.getContext('2d'); if (!ctx) return;
+  swingEquityChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels:[], datasets:[{
+      data: [], borderColor:'#3B82F6', borderWidth:2,
+      pointRadius:0, pointHoverRadius:3, tension:0.35, fill:true,
+      backgroundColor: c => {
+        const g = c.chart.ctx.createLinearGradient(0,0,0,c.chart.height);
+        g.addColorStop(0, 'rgba(59,130,246,0.15)');
+        g.addColorStop(1, 'rgba(59,130,246,0)');
+        return g;
+      },
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{
+          backgroundColor:'#191E2B',
+          borderColor:'rgba(255,255,255,0.08)', borderWidth:1,
+          titleColor:'#8893A8', bodyColor:'#E4EAF6',
+          bodyFont:{ family:'JetBrains Mono', size:12 },
+          callbacks:{ label: c => ` $${c.parsed.y.toFixed(2)}` },
+        },
+      },
+      scales:{
+        x:{ ticks:{ color:'#454E61', font:{size:9}, maxTicksLimit:6 }, grid:{ color:'rgba(255,255,255,0.03)' }, border:{color:'transparent'} },
+        y:{ ticks:{ color:'#454E61', font:{size:9, family:'JetBrains Mono'}, callback:v=>`$${v.toFixed(0)}` }, grid:{ color:'rgba(255,255,255,0.03)' }, border:{color:'transparent'} },
+      },
+    },
+  });
+}
+
+function fetchSwingPortfolio() {
+  fetch('/api/swing/portfolio')
+    .then(r => r.json())
+    .then(d => renderSwingPortfolio(d))
+    .catch(e => console.warn('Swing portfolio fetch failed:', e));
+}
+
+function renderSwingPortfolio(d) {
+  if (!d) return;
+
+  // Portfolio value
+  const eq = $('sw-equity-big');
+  if (eq) eq.textContent = `$${Number(d.equity).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+
+  // Day P&L
+  const dp = $('sw-day-pnl');
+  if (dp) {
+    const v = d.day_pnl || 0;
+    dp.textContent = (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+    dp.style.color = v >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+  const dpp = $('sw-day-pnl-pct');
+  if (dpp) {
+    const pct = d.day_pnl_pct || 0;
+    dpp.textContent = `(${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+  }
+
+  // Open positions count
+  const pc = $('sw-pos-count');
+  if (pc) pc.textContent = d.position_count || 0;
+
+  // Buying power
+  const bp = $('sw-buying-power');
+  if (bp) bp.textContent = `BP: $${Number(d.buying_power || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+
+  // Positions table
+  const tbody = $('sw-positions-tbody');
+  if (tbody) {
+    if (!d.positions || d.positions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;opacity:0.4">No open positions</td></tr>';
+    } else {
+      tbody.innerHTML = d.positions.map(p => {
+        const pnlColor = p.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        const pnlSign  = p.unrealized_pnl >= 0 ? '+' : '';
+        return `<tr>
+          <td><strong>${p.symbol}</strong></td>
+          <td><span class="dir-badge ${p.side}">${p.side.toUpperCase()}</span></td>
+          <td class="mono">${p.qty}</td>
+          <td class="mono">$${p.avg_entry.toFixed(2)}</td>
+          <td class="mono">$${p.current_price.toFixed(2)}</td>
+          <td class="mono" style="color:${pnlColor}">${pnlSign}$${p.unrealized_pnl.toFixed(2)} (${pnlSign}${p.pnl_pct.toFixed(1)}%)</td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  // Update swing equity chart with a single point (equity snapshot)
+  if (swingEquityChart && d.equity > 0) {
+    const now = new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false});
+    const ds = swingEquityChart.data;
+    ds.labels.push(now);
+    ds.datasets[0].data.push(d.equity);
+    // Keep last 50 points
+    if (ds.labels.length > 50) { ds.labels.shift(); ds.datasets[0].data.shift(); }
+    swingEquityChart.update('none');
+  }
+}
+
+function renderSwingTrades(trades) {
+  const tbody = $('sw-trades-tbody');
+  if (!tbody || !trades) return;
+  // Filter to SWING strategy trades
+  const swingTrades = trades.filter(t =>
+    (t.strategy || '').toUpperCase() === 'SWING' ||
+    (t.level_type || '').toUpperCase() === 'SWING'
+  );
+  if (swingTrades.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;opacity:0.4">No swing trades yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = swingTrades.slice(0, 10).map(t => {
+    const pnl = t.pnl ?? t.profit;
+    const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const result = pnl >= 0 ? 'WIN' : 'LOSS';
+    const resultCls = pnl >= 0 ? 'green' : 'red';
+    return `<tr>
+      <td>${shortTs(t.exit_time || t.timestamp)}</td>
+      <td><strong>${t.symbol || 'MES'}</strong></td>
+      <td><span class="dir-badge ${(t.direction||'').toLowerCase()}">${(t.direction||'—').toUpperCase()}</span></td>
+      <td class="mono">$${fp(t.entry_price)}</td>
+      <td class="mono">$${fp(t.exit_price)}</td>
+      <td class="mono" style="color:${pnlColor}">${fmtPnl(pnl)}</td>
+      <td class="${resultCls}">${result}</td>
+    </tr>`;
+  }).join('');
+}
+
+function startSwingPortfolioPolling() {
+  if (_swingPortfolioInterval) return;
+  fetchSwingPortfolio();
+  _swingPortfolioInterval = setInterval(fetchSwingPortfolio, 30_000);
+}
+
+function stopSwingPortfolioPolling() {
+  if (_swingPortfolioInterval) { clearInterval(_swingPortfolioInterval); _swingPortfolioInterval = null; }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 initChart();
+initSwingChart();
 connectWS();
 pollRest();
 setInterval(pollRest, POLL_MS);
 // Fetch broker status once on load (Stack tab may be the first thing someone checks)
 refreshStackTab();
+// Start swing portfolio polling since swing is the default view
+startSwingPortfolioPolling();

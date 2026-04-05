@@ -175,6 +175,7 @@ SWING_PULLBACK_EMA_TOL   = float(os.getenv("SWING_PULLBACK_EMA_TOL",  "0.02"))
 SWING_RISK_PER_TRADE     = float(os.getenv("SWING_RISK_PER_TRADE",    "0.0075"))
 SWING_TP_R1              = float(os.getenv("SWING_TP_R1",             "1.5"))
 SWING_TP_R2              = float(os.getenv("SWING_TP_R2",             "3.0"))
+SWING_RUNNER_PCT         = float(os.getenv("SWING_RUNNER_PCT",        "0.25"))  # 25% of position rides to TP2
 SWING_LOOKBACK_DAYS      = int(os.getenv("SWING_LOOKBACK_DAYS",     "90"))
 SWING_UNIVERSE           = os.getenv("SWING_UNIVERSE",
                                      "AAPL,MSFT,NVDA,META,GOOGL,AMZN,AMD,TSM,AVGO,CRM,"

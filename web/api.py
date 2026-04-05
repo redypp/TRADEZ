@@ -1132,6 +1132,50 @@ def api_screener_news(limit: int = 30):
     }
 
 
+@app.get("/api/swing/portfolio")
+def api_swing_portfolio():
+    """
+    Return Alpaca account state: equity, buying power, positions with unrealized P&L.
+    Graceful fallback if Alpaca isn't connected.
+    """
+    try:
+        from execution.alpaca import AlpacaBroker
+        broker = AlpacaBroker()
+        broker.connect()
+        acct = broker._client.get_account()
+        positions_raw = broker._client.get_all_positions()
+        positions = []
+        for p in positions_raw:
+            positions.append({
+                "symbol":          p.symbol,
+                "qty":             int(float(p.qty)),
+                "side":            "long" if float(p.qty) > 0 else "short",
+                "avg_entry":       float(p.avg_entry_price),
+                "current_price":   float(p.current_price),
+                "unrealized_pnl":  float(p.unrealized_pl),
+                "pnl_pct":         float(p.unrealized_plpc) * 100,
+                "market_value":    float(p.market_value),
+            })
+        return {
+            "equity":       float(acct.equity),
+            "buying_power":  float(acct.buying_power),
+            "cash":          float(acct.cash),
+            "day_pnl":       float(acct.equity) - float(acct.last_equity),
+            "day_pnl_pct":   ((float(acct.equity) - float(acct.last_equity)) / float(acct.last_equity) * 100)
+                             if float(acct.last_equity) > 0 else 0,
+            "positions":     positions,
+            "position_count": len(positions),
+        }
+    except Exception as e:
+        logger.warning(f"Swing portfolio fetch failed: {e}")
+        return {
+            "equity": 0, "buying_power": 0, "cash": 0,
+            "day_pnl": 0, "day_pnl_pct": 0,
+            "positions": [], "position_count": 0,
+            "error": str(e),
+        }
+
+
 @app.get("/api/swing/screener")
 def api_swing_screener():
     """
