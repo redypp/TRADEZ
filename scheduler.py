@@ -189,7 +189,8 @@ def _safe_get_equity() -> float:
         EquityUnavailable if equity cannot be confirmed and no fallback is set.
     """
     try:
-        equity = _router.get_broker_for("MES").get_account_equity()
+        portfolio = _router.get_portfolio()
+        equity = portfolio.total_equity
         if equity > 0:
             return equity
         # API returned 0 — treat same as failure
