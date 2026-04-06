@@ -39,6 +39,8 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import pytz
 
 logger = logging.getLogger(__name__)
@@ -282,6 +284,46 @@ def _gather_market_intelligence() -> dict:
             except Exception:
                 pass
 
+            # ── Smart money flow detection (OBV / A-D / volume asymmetry) ────
+            obv_signal = ""
+            ad_signal = ""
+            vol_asymmetry = ""
+            try:
+                closes = hist["Close"]
+                volumes = hist["Volume"]
+                highs = hist["High"]
+                lows = hist["Low"]
+
+                # On-Balance Volume (OBV)
+                obv = (volumes * np.where(closes.diff() > 0, 1, -1)).cumsum()
+                obv_20d_change = float(obv.iloc[-1] - obv.iloc[-20]) if len(obv) >= 20 else 0
+                price_20d_change = float(closes.iloc[-1] - closes.iloc[-20]) if len(closes) >= 20 else 0
+                # Divergence: OBV rising but price flat = accumulation
+                if obv_20d_change > 0 and abs(price_20d_change / max(closes.iloc[-20], 1)) < 0.02:
+                    obv_signal = "ACCUMULATION"  # smart money loading
+                elif obv_20d_change < 0 and abs(price_20d_change / max(closes.iloc[-20], 1)) < 0.02:
+                    obv_signal = "DISTRIBUTION"  # smart money unloading
+
+                # Accumulation/Distribution Line
+                clv = ((closes - lows) - (highs - closes)) / (highs - lows).replace(0, 1e-9)
+                ad_line = (clv * volumes).cumsum()
+                ad_20d = float(ad_line.iloc[-1] - ad_line.iloc[-20]) if len(ad_line) >= 20 else 0
+                if ad_20d > 0 and price_20d_change <= 0:
+                    ad_signal = "BULLISH_DIV"  # A/D rising, price flat/down = buying pressure
+                elif ad_20d < 0 and price_20d_change >= 0:
+                    ad_signal = "BEARISH_DIV"  # A/D falling, price flat/up = selling pressure
+
+                # Volume asymmetry: compare volume on up days vs down days
+                up_days = closes.diff() > 0
+                vol_up = float(volumes[up_days].iloc[-20:].mean()) if up_days.sum() > 3 else 0
+                vol_dn = float(volumes[~up_days].iloc[-20:].mean()) if (~up_days).sum() > 3 else 0
+                if vol_dn > 0 and vol_up / vol_dn > 1.5:
+                    vol_asymmetry = "BUY_PRESSURE"  # more volume on up days
+                elif vol_up > 0 and vol_dn / vol_up > 1.5:
+                    vol_asymmetry = "SELL_PRESSURE"
+            except Exception:
+                pass
+
             # Opportunity score (0–100, higher = more interesting for LLM review)
             score = 50
             if above_ema20 and above_ema50:   score += 10
@@ -294,6 +336,14 @@ def _gather_market_intelligence() -> dict:
             if "buy" in rec_key.lower():      score += 6
             if options_note.startswith("UNUSUAL"): score += 12  # unusual options
             if (short_pct or 0) > 0.15:      score += 5   # squeeze potential
+
+            # Smart money flow scoring
+            if obv_signal == "ACCUMULATION":  score += 12  # big players loading
+            elif obv_signal == "DISTRIBUTION": score -= 8
+            if ad_signal == "BULLISH_DIV":    score += 8   # A/D confirms buying
+            elif ad_signal == "BEARISH_DIV":  score -= 6
+            if vol_asymmetry == "BUY_PRESSURE":  score += 10
+            elif vol_asymmetry == "SELL_PRESSURE": score -= 6
 
             symbol_intel.append({
                 "symbol":            sym,
@@ -318,6 +368,9 @@ def _gather_market_intelligence() -> dict:
                 "earnings_in_days":  earnings_in_days,
                 "earnings_date":     earnings_date_str or None,
                 "options_note":      options_note or None,
+                "obv_signal":        obv_signal or None,
+                "ad_signal":         ad_signal or None,
+                "vol_asymmetry":     vol_asymmetry or None,
                 "opportunity_score": min(score, 100),
             })
 

@@ -688,8 +688,29 @@ def _execute_signal(
                     pass
                 return None
 
-    # ── Combined size boost (news × LLM, capped at 2.0x) ─────────────────────
-    combined_boost = min(2.0, news_boost * llm_boost)
+    # ── Macro calendar gate (FOMC, CPI, NFP — reduce size or block) ──────────
+    macro_size_factor = 1.0
+    try:
+        from data.macro_calendar import get_macro_risk
+        macro = get_macro_risk()
+        if macro.get("block"):
+            logger.info(
+                f"[{symbol}] {strategy.name}: macro calendar blocked — {macro['reason']}"
+            )
+            return None
+        if macro.get("reduce_size"):
+            macro_size_factor = macro.get("size_factor", 1.0)
+            logger.info(
+                f"[{symbol}] {strategy.name}: macro calendar — {macro['reason']} "
+                f"(size factor={macro_size_factor:.2f})"
+            )
+    except ImportError:
+        pass
+    except Exception as mac_err:
+        logger.debug(f"[{symbol}] Macro calendar check failed: {mac_err}")
+
+    # ── Combined size boost (news × LLM × macro, capped at 2.0x) ──────────
+    combined_boost = min(2.0, news_boost * llm_boost * macro_size_factor)
     if combined_boost != 1.0:
         logger.info(
             f"[{symbol}] Combined size boost: {combined_boost:.2f}x "

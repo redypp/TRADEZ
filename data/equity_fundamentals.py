@@ -447,6 +447,54 @@ def get_equity_fundamentals(symbol: str) -> dict:
         except Exception:
             pass
 
+        # ── Earnings estimate revisions ───────────────────────────────────────
+        # Track if analysts are raising or lowering estimates — strong predictive signal
+        try:
+            est = t.earnings_estimate
+            if est is not None and not est.empty:
+                # Compare current quarter estimate vs 30/60 days ago
+                # yfinance returns: avg, low, high, yearAgoEps, growth
+                avg_est = _safe(est.loc["avg", est.columns[0]])  # current Q estimate
+                year_ago = _safe(est.loc["yearAgoEps", est.columns[0]])
+                growth_est = _safe(est.loc["growth", est.columns[0]])
+                if growth_est is not None:
+                    result["est_growth"] = round(growth_est * 100, 1)
+                if avg_est and year_ago and year_ago != 0:
+                    result["est_revision_pct"] = round(((avg_est - year_ago) / abs(year_ago)) * 100, 1)
+        except Exception:
+            pass
+
+        try:
+            rev_est = t.revenue_estimate
+            if rev_est is not None and not rev_est.empty:
+                rev_growth = _safe(rev_est.loc["growth", rev_est.columns[0]])
+                if rev_growth is not None:
+                    result["rev_est_growth"] = round(rev_growth * 100, 1)
+        except Exception:
+            pass
+
+        # ── SEC EDGAR filings (8-K, Form 4 clusters, 13D activists) ──────────
+        sec_score_delta = 0
+        sec_detail = ""
+        try:
+            from data.sec_edgar import get_sec_score
+            sec_score_delta, sec_detail = get_sec_score(symbol)
+            result["sec_score_delta"] = sec_score_delta
+            result["sec_detail"] = sec_detail
+        except Exception as sec_err:
+            logger.debug(f"[Fundamentals] SEC EDGAR skipped for {symbol}: {sec_err}")
+
+        # ── Congressional trading tracker ────────────────────────────────────
+        political_score_delta = 0
+        political_detail = ""
+        try:
+            from data.political_trades import get_political_score
+            political_score_delta, political_detail = get_political_score(symbol)
+            result["political_score_delta"] = political_score_delta
+            result["political_detail"] = political_detail
+        except Exception as pol_err:
+            logger.debug(f"[Fundamentals] Political trades skipped for {symbol}: {pol_err}")
+
         # ── Composite fundamental score (0-100) ───────────────────────────────
         score = 50  # neutral base
 
@@ -498,6 +546,20 @@ def get_equity_fundamentals(symbol: str) -> dict:
         # Squeeze potential
         if result["squeeze_potential"]: score += 5
 
+        # Earnings estimate revisions
+        est_growth = result.get("est_growth")
+        if est_growth is not None:
+            if est_growth > 10:    score += 10  # estimates rising strongly
+            elif est_growth > 5:   score += 6
+            elif est_growth < -10: score -= 10  # estimates falling hard
+            elif est_growth < -5:  score -= 6
+
+        # SEC EDGAR filing signal
+        score += sec_score_delta
+
+        # Congressional trading signal
+        score += political_score_delta
+
         # Geopolitical risk penalty
         geo_lvl = result["geo_risk_level"]
         if geo_lvl == "HIGH":    score -= 8
@@ -528,6 +590,12 @@ def get_equity_fundamentals(symbol: str) -> dict:
             bull_parts.append(f"{result['short_pct_float']:.0f}% float short — squeeze risk")
         if edays and 7 <= edays <= 28:
             bull_parts.append(f"earnings in {edays}d ({result['earnings_date']})")
+        if sec_score_delta > 0:
+            bull_parts.append(sec_detail.split(":")[1].strip() if ":" in sec_detail else sec_detail)
+        if political_score_delta > 0:
+            bull_parts.append(political_detail.split(":")[1].strip() if ":" in political_detail else political_detail)
+        if est_growth is not None and est_growth > 5:
+            bull_parts.append(f"estimates rising +{est_growth:.0f}%")
 
         if result["analyst_trend"] == "DOWNGRADING":
             bear_parts.append(result["analyst_trend_detail"] or "analyst downgrades")
@@ -539,9 +607,15 @@ def get_equity_fundamentals(symbol: str) -> dict:
             bear_parts.append(f"revenue declining ({rev:.1f}% YoY)")
         if streak == 0:
             bear_parts.append("missed last earnings estimate")
+        if sec_score_delta < 0:
+            bear_parts.append(sec_detail.split(":")[1].strip() if ":" in sec_detail else sec_detail)
+        if political_score_delta < 0:
+            bear_parts.append("Congress members selling")
+        if est_growth is not None and est_growth < -5:
+            bear_parts.append(f"estimates falling {est_growth:.0f}%")
 
-        result["bull_case"] = " · ".join(bull_parts[:3]) or "No standout catalysts"
-        result["bear_case"] = " · ".join(bear_parts[:2]) or "No major red flags"
+        result["bull_case"] = " · ".join(bull_parts[:4]) or "No standout catalysts"
+        result["bear_case"] = " · ".join(bear_parts[:3]) or "No major red flags"
 
     except Exception as e:
         result["error"] = str(e)
