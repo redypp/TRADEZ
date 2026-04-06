@@ -185,7 +185,9 @@ STRATEGY_CONFLICT_RESOLUTION = os.getenv("STRATEGY_CONFLICT_RESOLUTION", "PRIORI
 
 # All symbols the orchestrator evaluates each tick.
 # Only symbols with at least one enabled strategy in STRATEGY_SYMBOLS are traded.
-ACTIVE_SYMBOLS = os.getenv("ACTIVE_SYMBOLS", "MES,MGC,SIL,MNQ,SPY,QQQ,IWM").split(",")
+# Includes both futures (BRT) and equities (SWING) universes.
+_BASE_SYMBOLS = os.getenv("ACTIVE_SYMBOLS", "MES,MGC,SIL,MNQ,SPY,QQQ,IWM").split(",")
+ACTIVE_SYMBOLS = list(set(_BASE_SYMBOLS + SWING_UNIVERSE.split(",")))
 
 # ── Algo trading robustness controls ──────────────────────────────────────────
 

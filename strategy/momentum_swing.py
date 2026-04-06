@@ -469,7 +469,7 @@ class MomentumSwingStrategy(AbstractStrategy):
         logger.info(
             f"[SWING] {setup_type} signal — "
             f"close={close:.2f} stop={stop_loss:.2f} tp1={take_profit:.2f} tp2={tp2:.2f} "
-            f"risk={risk:.2f} R:R={take_profit/close if close else 0:.2f}"
+            f"risk={risk:.2f} R:R={(take_profit - close) / risk if risk else 0:.2f}"
         )
 
         return {

@@ -41,6 +41,7 @@ from risk.manager import RiskBlock, check_all, register_trade
 from execution.router import router as _router
 from monitor.alerts import (
     notify_entry,
+    notify_error,
     notify_risk_block,
 )
 
@@ -689,25 +690,27 @@ def _execute_signal(
                 return None
 
     # ── Macro calendar gate (FOMC, CPI, NFP — reduce size or block) ──────────
+    # Only applies to daily/swing strategies — intraday (BRT) holds minutes, not exposed
     macro_size_factor = 1.0
-    try:
-        from data.macro_calendar import get_macro_risk
-        macro = get_macro_risk()
-        if macro.get("block"):
-            logger.info(
-                f"[{symbol}] {strategy.name}: macro calendar blocked — {macro['reason']}"
-            )
-            return None
-        if macro.get("reduce_size"):
-            macro_size_factor = macro.get("size_factor", 1.0)
-            logger.info(
-                f"[{symbol}] {strategy.name}: macro calendar — {macro['reason']} "
-                f"(size factor={macro_size_factor:.2f})"
-            )
-    except ImportError:
-        pass
-    except Exception as mac_err:
-        logger.debug(f"[{symbol}] Macro calendar check failed: {mac_err}")
+    if strategy_type == "daily":
+        try:
+            from data.macro_calendar import get_macro_risk
+            macro = get_macro_risk()
+            if macro.get("block"):
+                logger.info(
+                    f"[{symbol}] {strategy.name}: macro calendar blocked — {macro['reason']}"
+                )
+                return None
+            if macro.get("reduce_size"):
+                macro_size_factor = macro.get("size_factor", 1.0)
+                logger.info(
+                    f"[{symbol}] {strategy.name}: macro calendar — {macro['reason']} "
+                    f"(size factor={macro_size_factor:.2f})"
+                )
+        except ImportError:
+            pass
+        except Exception as mac_err:
+            logger.debug(f"[{symbol}] Macro calendar check failed: {mac_err}")
 
     # ── Combined size boost (news × LLM × macro, capped at 2.0x) ──────────
     combined_boost = min(2.0, news_boost * llm_boost * macro_size_factor)
@@ -760,6 +763,12 @@ def _execute_signal(
             and runner_pct > 0
             and contracts >= 2  # need at least 2 shares to split
         )
+
+        if strategy.name == "SWING" and not use_runner and contracts < 2:
+            logger.info(
+                f"[{symbol}] SWING runner split skipped — only {contracts} share(s), "
+                f"need 2+ to split. Full position exits at TP1={tp_price:.2f}"
+            )
 
         if use_runner:
             runner_qty = max(1, int(round(contracts * runner_pct)))
