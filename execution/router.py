@@ -97,14 +97,18 @@ def _build_broker_registry() -> dict[str, BrokerBase]:
     """Build the registry of available broker connectors."""
     registry: dict[str, BrokerBase] = {}
 
-    # Tradovate — always available (futures)
-    try:
-        from execution.tradovate_broker import TradovateBroker
-        registry["tradovate"] = TradovateBroker()
-    except ImportError:
-        # Fall back to the functional tradovate.py API (not yet wrapped in BrokerBase)
-        registry["tradovate"] = _TradovateLegacyAdapter()
-        logger.info("Using tradovate legacy adapter")
+    # Tradovate — DISABLED. TRADEZ is an Alpaca-only swing bot.
+    # Set TRADOVATE_ENABLED=true in .env to re-enable futures execution.
+    import os
+    if os.getenv("TRADOVATE_ENABLED", "false").lower() == "true":
+        try:
+            from execution.tradovate_broker import TradovateBroker
+            registry["tradovate"] = TradovateBroker()
+        except ImportError:
+            registry["tradovate"] = _TradovateLegacyAdapter()
+            logger.info("Using tradovate legacy adapter")
+    else:
+        logger.info("Tradovate broker disabled (set TRADOVATE_ENABLED=true to enable)")
 
     # Alpaca — stocks/ETFs
     try:
