@@ -659,6 +659,15 @@ def run_eod_swing_scan() -> None:
         return
 
     logger.info("─── EOD Swing scan starting ───")
+
+    # ── One-shot override (relaxed filters / shrunk risk / expanded universe) ──
+    # If data/.swing_override.json exists, apply it for THIS run only, then
+    # restore settings and delete the file in the finally block.
+    from strategy import swing_override
+    override = swing_override.load_override()
+    if override:
+        swing_override.apply(override)
+
     try:
         _ensure_auth()
         equity = _safe_get_equity()
@@ -731,6 +740,13 @@ def run_eod_swing_scan() -> None:
 
     except Exception as e:
         logger.error(f"EOD swing scan failed: {e}", exc_info=True)
+    finally:
+        # Always restore settings and consume the override file, even on error
+        if override:
+            try:
+                swing_override.consume()
+            finally:
+                swing_override.restore()
 
 
 # ─── Scheduler setup ──────────────────────────────────────────────────────────
