@@ -58,10 +58,12 @@ def notify_signal_check(signal: dict, fundamentals: dict) -> None:
     icon = "🔍" if sig == 0 else ("📈" if sig == 1 else "📉")
     sig_label = {1: "LONG", -1: "SHORT", 0: "FLAT"}.get(sig, "FLAT")
 
+    close_val = signal.get("close")
+    close_str = f"{close_val:.2f}" if isinstance(close_val, (int, float)) else "?"
     lines = [
         f"{icon} <b>MES B&R — {ts}</b>",
         f"Signal : <b>{sig_label}</b>",
-        f"Close  : {signal.get('close', '?'):.2f}",
+        f"Close  : {close_str}",
         f"ADX    : {signal.get('adx', 0):.1f}  |  RSI: {signal.get('rsi', 0):.1f}",
         f"Regime : {regime}",
     ]
