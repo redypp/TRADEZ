@@ -452,7 +452,12 @@ def run_signal_check() -> None:
             logger.warning(f"State DB write failed (non-fatal): {db_err}")
 
         # ── Telegram summary (smart — only fires if noteworthy) ───────────
-        notify_signal_check(brt_signal, fundamentals)
+        # Only notify when BRT is actually enabled AND has real data. When
+        # BRT is disabled (Alpaca-only swing mode), the brt_signal dict is
+        # either empty or populated with zeros — sending that to Telegram
+        # produced "Close: ?, ADX: 0.0, RSI: 0.0" spam every 15 min.
+        if settings.STRATEGY_ENABLED.get("BRT", False) and brt_signal.get("close") is not None:
+            notify_signal_check(brt_signal, fundamentals)
 
         # ── Update LLM selector context with real signal data for next tick ─
         # After we have brt_signal, we can store richer context in the gate cache

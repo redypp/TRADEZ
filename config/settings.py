@@ -156,8 +156,20 @@ STRATEGY_ENABLED = {
 STRATEGY_SYMBOLS = {
     "BRT":      os.getenv("STRATEGY_BRT_SYMBOLS",      "MES").split(","),
     "SWING":    os.getenv("STRATEGY_SWING_SYMBOLS",
-                          "AAPL,MSFT,NVDA,META,GOOGL,AMZN,AMD,TSM,AVGO,CRM,"
-                          "ORCL,NFLX,SHOP,PANW,CRWD,SNOW,MDB,DDOG,ZS,AXON").split(","),
+                          # ~112 most-liquid US large/mega caps across all sectors.
+                          # Expanded from 20 mega-caps on 2026-04-08 to give the
+                          # momentum swing strategy enough daily opportunities.
+                          "AAPL,ABBV,ABNB,ABT,ACN,ADBE,ADI,AMAT,AMD,AMGN,AMZN,"
+                          "APD,AVGO,AXP,BA,BAC,BKNG,BLK,BMY,C,CAT,"
+                          "CMG,COF,COP,COST,CRM,CRWD,CSCO,CVX,DDOG,DE,"
+                          "DHR,DIS,EOG,FDX,FI,GE,GILD,GM,GOOG,GOOGL,"
+                          "GS,HD,HON,IBM,INTC,INTU,ISRG,JNJ,JPM,KLAC,"
+                          "LIN,LLY,LMT,LOW,LRCX,MA,MAR,MCD,MDB,MDT,"
+                          "META,MO,MRK,MS,MSFT,MU,NEE,NET,NFLX,NKE,"
+                          "NOW,NVDA,ORCL,PANW,PEP,PFE,PG,PLD,PLTR,PNC,"
+                          "PYPL,QCOM,REGN,RTX,SBUX,SCHW,SHOP,SHW,SLB,SNOW,"
+                          "SO,SPGI,T,TGT,TJX,TMO,TMUS,TSLA,TSM,TXN,"
+                          "UBER,UNH,UPS,USB,V,VRTX,VZ,WFC,WMT,XOM,ZS").split(","),
     "VWAP_MR":  os.getenv("STRATEGY_VWAP_MR_SYMBOLS",  "MES").split(","),
     "DONCHIAN": os.getenv("STRATEGY_DONCHIAN_SYMBOLS",  "MGC,SIL,MNQ").split(","),
     "ORB":      os.getenv("STRATEGY_ORB_SYMBOLS",       "MES,MNQ").split(","),
@@ -178,8 +190,19 @@ SWING_TP_R2              = float(os.getenv("SWING_TP_R2",             "3.0"))
 SWING_RUNNER_PCT         = float(os.getenv("SWING_RUNNER_PCT",        "0.25"))  # 25% of position rides to TP2
 SWING_LOOKBACK_DAYS      = int(os.getenv("SWING_LOOKBACK_DAYS",     "90"))
 SWING_UNIVERSE           = os.getenv("SWING_UNIVERSE",
-                                     "AAPL,MSFT,NVDA,META,GOOGL,AMZN,AMD,TSM,AVGO,CRM,"
-                                     "ORCL,NFLX,SHOP,PANW,CRWD,SNOW,MDB,DDOG,ZS,AXON")
+                                     # ~112 most-liquid US large/mega caps across all sectors.
+                                     # Must match the default list in STRATEGY_SYMBOLS["SWING"] above.
+                                     "AAPL,ABBV,ABNB,ABT,ACN,ADBE,ADI,AMAT,AMD,AMGN,AMZN,"
+                                     "APD,AVGO,AXP,BA,BAC,BKNG,BLK,BMY,C,CAT,"
+                                     "CMG,COF,COP,COST,CRM,CRWD,CSCO,CVX,DDOG,DE,"
+                                     "DHR,DIS,EOG,FDX,FI,GE,GILD,GM,GOOG,GOOGL,"
+                                     "GS,HD,HON,IBM,INTC,INTU,ISRG,JNJ,JPM,KLAC,"
+                                     "LIN,LLY,LMT,LOW,LRCX,MA,MAR,MCD,MDB,MDT,"
+                                     "META,MO,MRK,MS,MSFT,MU,NEE,NET,NFLX,NKE,"
+                                     "NOW,NVDA,ORCL,PANW,PEP,PFE,PG,PLD,PLTR,PNC,"
+                                     "PYPL,QCOM,REGN,RTX,SBUX,SCHW,SHOP,SHW,SLB,SNOW,"
+                                     "SO,SPGI,T,TGT,TJX,TMO,TMUS,TSLA,TSM,TXN,"
+                                     "UBER,UNH,UPS,USB,V,VRTX,VZ,WFC,WMT,XOM,ZS")
 
 STRATEGY_CONFLICT_RESOLUTION = os.getenv("STRATEGY_CONFLICT_RESOLUTION", "PRIORITY")
 

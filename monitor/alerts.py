@@ -19,7 +19,10 @@ If token/chat_id are not set, alerts are silently skipped
 import logging
 import requests
 from datetime import datetime
+import pytz
 from config import settings
+
+_ET = pytz.timezone("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ def notify_signal_check(signal: dict, fundamentals: dict) -> None:
     if sig == 0 and regime == "RISK_ON":
         return  # quiet hour, don't spam
 
-    ts   = datetime.now().strftime("%H:%M ET")
+    ts   = datetime.now(_ET).strftime("%H:%M ET")
     icon = "🔍" if sig == 0 else ("📈" if sig == 1 else "📉")
     sig_label = {1: "LONG", -1: "SHORT", 0: "FLAT"}.get(sig, "FLAT")
 
@@ -89,7 +92,7 @@ def notify_entry(
     rr        = round(reward_pts / risk_pts, 1) if risk_pts > 0 else 0
     risk_usd  = round(risk_pts * settings.BRT_POINT_VALUE * contracts, 2)
 
-    ts   = datetime.now().strftime("%H:%M ET")
+    ts   = datetime.now(_ET).strftime("%H:%M ET")
     icon = "📈" if direction == "LONG" else "📉"
 
     msg = (
@@ -117,7 +120,7 @@ def notify_exit(
     """Send alert when a trade exits."""
     icon = "✅" if reason == "TP" else "❌"
     pts  = round((exit_price - entry_price) * (1 if direction == "LONG" else -1), 2)
-    ts   = datetime.now().strftime("%H:%M ET")
+    ts   = datetime.now(_ET).strftime("%H:%M ET")
 
     msg = (
         f"{icon} <b>MES {direction} EXIT ({reason}) — {ts}</b>\n"
@@ -141,7 +144,7 @@ def notify_brt_signal(signal: dict) -> None:
     if sig == 0:
         return
 
-    ts         = datetime.now().strftime("%H:%M ET")
+    ts         = datetime.now(_ET).strftime("%H:%M ET")
     icon       = "📈" if sig == 1 else "📉"
     entry      = signal.get("close", 0)
     sl         = signal.get("stop_loss", 0)
@@ -184,7 +187,7 @@ def notify_vwap_signal(signal: dict) -> None:
 
     direction  = {1: "LONG", -1: "SHORT"}.get(sig, "FLAT")
     icon       = "📈" if sig == 1 else "📉"
-    ts         = datetime.now().strftime("%H:%M ET")
+    ts         = datetime.now(_ET).strftime("%H:%M ET")
     entry      = signal.get("close", 0)
     sl         = signal.get("stop_loss") or 0
     tp         = signal.get("take_profit") or 0
@@ -214,7 +217,7 @@ def notify_vwap_signal(signal: dict) -> None:
 
 def notify_risk_block(reason: str) -> None:
     """Send alert when a trade is blocked by risk manager."""
-    ts  = datetime.now().strftime("%H:%M ET")
+    ts  = datetime.now(_ET).strftime("%H:%M ET")
     msg = f"🚫 <b>TRADE BLOCKED — {ts}</b>\n{reason}"
     _send(msg)
     logger.info(f"Risk block alert sent: {reason}")
@@ -246,7 +249,7 @@ def notify_news_trade_signal(
 ) -> None:
     """Alert when Grok has assessed a directional trade signal from breaking news."""
     icon = "📈" if direction == "BULLISH" else "📉"
-    ts = datetime.now().strftime("%H:%M ET")
+    ts = datetime.now(_ET).strftime("%H:%M ET")
     conf_pct = f"{confidence:.0%}"
 
     msg = (
@@ -268,7 +271,7 @@ def notify_news_trade_block(
     reason:         str,
 ) -> None:
     """Alert when a BRT entry is blocked because news opposes it."""
-    ts = datetime.now().strftime("%H:%M ET")
+    ts = datetime.now(_ET).strftime("%H:%M ET")
     msg = (
         f"🚫 <b>ENTRY BLOCKED BY NEWS — {ts}</b>\n"
         f"BRT wanted  : {brt_direction}\n"
@@ -290,7 +293,7 @@ def notify_breaking_news(
 ) -> None:
     """Send immediate Telegram alert when breaking news is detected."""
     impact_icon = {"HIGH": "🚨", "MEDIUM": "⚡"}.get(impact, "📰")
-    ts = datetime.now().strftime("%H:%M ET")
+    ts = datetime.now(_ET).strftime("%H:%M ET")
 
     lines = [
         f"{impact_icon} <b>BREAKING NEWS [{impact}] — {ts}</b>",
@@ -321,7 +324,7 @@ def notify_breaking_news(
 
 def notify_error(error: str) -> None:
     """Send alert on unhandled errors."""
-    ts  = datetime.now().strftime("%H:%M ET")
+    ts  = datetime.now(_ET).strftime("%H:%M ET")
     msg = f"⚠️ <b>BOT ERROR — {ts}</b>\n{error}"
     _send(msg)
 
@@ -334,7 +337,7 @@ def notify_llm_advisory(advisory: dict) -> None:
     headline  = advisory.get("headline", "AI Advisory")
     brief     = advisory.get("brief", "")
     flags     = advisory.get("risk_flags", [])
-    ts        = advisory.get("timestamp", datetime.now().strftime("%H:%M ET"))
+    ts        = advisory.get("timestamp", datetime.now(_ET).strftime("%H:%M ET"))
 
     sentiment_icon = {"BULLISH": "🟢", "BEARISH": "🔴", "NEUTRAL": "🟡"}.get(sentiment, "⚪")
     trigger_icon   = {"SIGNAL": "📡", "PRE_MARKET": "🌅", "HOURLY": "🤖"}.get(trigger, "🤖")
@@ -374,7 +377,7 @@ def notify_llm_gate_block(
     reasoning:     str,
 ) -> None:
     """Alert when the LLM gate blocks a trade the algo wanted to take."""
-    ts = datetime.now().strftime("%H:%M ET")
+    ts = datetime.now(_ET).strftime("%H:%M ET")
     msg = (
         f"🤖🚫 <b>LLM GATE BLOCKED — {ts}</b>\n"
         f"Algo wanted  : {strategy_name} {direction}\n"
@@ -393,7 +396,7 @@ def notify_llm_quality_gate_block(
     risk_flags:     list,
 ) -> None:
     """Alert when the advisory quality gate blocks a trade."""
-    ts    = datetime.now().strftime("%H:%M ET")
+    ts    = datetime.now(_ET).strftime("%H:%M ET")
     flags = " | ".join(risk_flags[:3]) if risk_flags else "none"
     msg = (
         f"🤖🚫 <b>AI QUALITY GATE BLOCKED — {ts}</b>\n"
@@ -414,7 +417,7 @@ def notify_news_size_boost(
     headline:   str,
 ) -> None:
     """Alert when a news confirmation boosts position size."""
-    ts = datetime.now().strftime("%H:%M ET")
+    ts = datetime.now(_ET).strftime("%H:%M ET")
     msg = (
         f"📰📈 <b>NEWS SIZE BOOST — {ts}</b>\n"
         f"Direction  : {direction}\n"
