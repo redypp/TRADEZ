@@ -169,7 +169,13 @@ def _check_gaps(
 
     Missing bars cause indicators to compute across gaps, producing
     incorrect ATR / VWAP / EMA values for the affected period.
+
+    Skipped entirely for daily (>=1440m) bars: weekends and holidays
+    produce legitimate 3-4 calendar-day gaps that aren't data quality
+    failures and don't affect daily-indicator calculations.
     """
+    if timeframe_minutes >= 1440:
+        return
     if len(df) < 2:
         return
 
