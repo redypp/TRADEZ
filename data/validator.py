@@ -97,10 +97,21 @@ def _check_stale_data(
     stale_threshold_min: int,
 ) -> None:
     """
-    Fail if the last bar's timestamp is more than stale_threshold_min minutes old.
+    Fail if the last bar's timestamp is more than an age-appropriate threshold
+    relative to the bar size.
 
     Catches yFinance API returning cached/stale data from a prior session,
     which would cause the signal engine to evaluate old market state.
+
+    Threshold scaling: the caller's `stale_threshold_min` is treated as the
+    FLOOR for intraday bars. For higher timeframes (hourly, daily) the
+    threshold is scaled up to a multiple of the bar size so that a normal
+    daily bar (e.g. ~16h old after an overnight) isn't flagged as stale.
+
+      15m  →  max(30 min floor, 45 min)          =  45 min
+      60m  →  max(30 min floor, 180 min)         =  3 hrs
+      1440m (daily) → max(30 min, 5760 min + slack) ~= 4 trading days
+        (allows for Fri→Mon gap plus one holiday)
     """
     try:
         last_ts = df.index[-1]
@@ -109,17 +120,33 @@ def _check_stale_data(
         now_utc = datetime.now(timezone.utc)
         age_min = (now_utc - last_ts.tz_convert("UTC")).total_seconds() / 60
 
-        # During market hours, data older than threshold is suspicious
-        # Outside market hours, staleness is expected — skip the check
+        # Scale threshold by bar size. Daily bars get a special case because
+        # weekends + holidays mean "normal" daily bar age can be 3–4 calendar
+        # days after the most recent close.
+        if timeframe_minutes >= 1440:
+            # 1 trading day = ~1 calendar day; allow up to 4 calendar days
+            # to cover long weekends and one holiday.
+            effective_threshold = 4 * 24 * 60  # 4 days in minutes
+        else:
+            # Intraday: 3x bar size, but never below the caller's floor.
+            effective_threshold = max(stale_threshold_min, 3 * timeframe_minutes)
+
+        # The staleness check only makes sense when fresh data *should* be
+        # available — i.e. during regular trading hours on a weekday.
+        # Outside RTH (incl. the 16:05 ET swing scan), the last bar is
+        # expected to be "old" relative to wall-clock time.
         from pytz import timezone as pytz_tz
         et = pytz_tz("America/New_York")
         now_et = datetime.now(et)
-        market_open = now_et.hour >= 9 and now_et.weekday() < 5
+        market_open = (
+            now_et.weekday() < 5
+            and 9 <= now_et.hour < 16
+        )
 
-        if market_open and age_min > stale_threshold_min:
+        if market_open and age_min > effective_threshold:
             raise DataQualityError(
                 f"Data is stale: last bar is {age_min:.0f} min old "
-                f"(threshold: {stale_threshold_min} min). "
+                f"(threshold: {effective_threshold} min, tf={timeframe_minutes}m). "
                 f"Feed may be delayed or API returned cached data."
             )
     except DataQualityError:

@@ -252,21 +252,10 @@ class MomentumSwingStrategy(AbstractStrategy):
             return False
 
         # Hard block if VIX is in panic territory
-        # (One-shot override can bypass this for live test runs)
         vix = fundamentals.get("vix") or 0
         if vix > 35:
-            try:
-                from strategy import swing_override
-                if swing_override.is_skip_vix():
-                    logger.warning(
-                        f"[SWING] {symbol} — VIX={vix:.1f} > 35 but skip_vix_cap override active"
-                    )
-                else:
-                    logger.debug(f"[SWING] {symbol} — blocked: VIX={vix:.1f} > 35")
-                    return False
-            except ImportError:
-                logger.debug(f"[SWING] {symbol} — blocked: VIX={vix:.1f} > 35")
-                return False
+            logger.debug(f"[SWING] {symbol} — blocked: VIX={vix:.1f} > 35")
+            return False
 
         # Block in NO_TRADE regime
         if regime == "NO_TRADE":

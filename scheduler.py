@@ -531,9 +531,24 @@ def run_eod_flatten() -> None:
     try:
         _ensure_auth()
         from risk.manager import OPEN_TRADES, close_trade
+        from execution.router import INSTRUMENT_BROKER_MAP
+
+        # Only try to flatten futures whose broker is actually registered.
+        # Tradovate is disabled in Alpaca-only mode — skip those symbols
+        # entirely instead of spamming "broker not available" errors.
+        available_brokers = set(_router._brokers.keys())
+        flattenable = [
+            s for s in FUTURES_SYMBOLS
+            if INSTRUMENT_BROKER_MAP.get(s) in available_brokers
+        ]
+        if not flattenable:
+            logger.info(
+                "EOD flatten: no futures brokers registered — nothing to flatten"
+            )
+            return
 
         closed = []
-        for symbol in list(FUTURES_SYMBOLS):
+        for symbol in list(flattenable):
             try:
                 pos = _router.get_position(symbol)
                 if pos != 0:
@@ -573,7 +588,13 @@ def run_eod_summary() -> None:
 
         # Cancel any unfilled orders left open (shouldn't happen with brackets,
         # but safety net in case of partial fills or manual interference).
+        # Only futures whose broker is registered — skip Tradovate symbols
+        # when that broker is disabled.
+        from execution.router import INSTRUMENT_BROKER_MAP
+        _available = set(_router._brokers.keys())
         for sym in list(FUTURES_SYMBOLS):
+            if INSTRUMENT_BROKER_MAP.get(sym) not in _available:
+                continue
             try:
                 _router.cancel_all_orders(sym)
             except Exception:
@@ -660,14 +681,6 @@ def run_eod_swing_scan() -> None:
 
     logger.info("─── EOD Swing scan starting ───")
 
-    # ── One-shot override (relaxed filters / shrunk risk / expanded universe) ──
-    # If data/.swing_override.json exists, apply it for THIS run only, then
-    # restore settings and delete the file in the finally block.
-    from strategy import swing_override
-    override = swing_override.load_override()
-    if override:
-        swing_override.apply(override)
-
     try:
         _ensure_auth()
         equity = _safe_get_equity()
@@ -740,13 +753,6 @@ def run_eod_swing_scan() -> None:
 
     except Exception as e:
         logger.error(f"EOD swing scan failed: {e}", exc_info=True)
-    finally:
-        # Always restore settings and consume the override file, even on error
-        if override:
-            try:
-                swing_override.consume()
-            finally:
-                swing_override.restore()
 
 
 # ─── Scheduler setup ──────────────────────────────────────────────────────────
