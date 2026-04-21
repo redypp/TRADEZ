@@ -65,7 +65,7 @@ _llm_spec_cache:   dict  = {}   # last advisory result from Grok+GPT4+Claude
 _llm_spec_ts:      float = 0.0  # unix time of last successful run
 _llm_spec_running: bool  = False
 _llm_spec_queued:  bool  = False  # True = run immediately on next cycle
-_LLM_SPEC_INTERVAL = 20 * 60     # auto-refresh every 20 minutes
+_LLM_SPEC_INTERVAL = 60 * 60     # auto-refresh every 60 minutes (was 20 — informational only)
 
 
 def _run_screener_llm_worker():
@@ -297,18 +297,8 @@ def _run_news_scraper_worker():
                 logger.debug(f"[ScreenerNews] RSS error: {e}")
             last_rss = now
 
-        # Grok breaking news
-        if now - _news_grok_ts >= _NEWS_GROK_INTERVAL:
-            try:
-                item = _grok_breaking_news()
-                if item:
-                    with _news_lock:
-                        _news_items.insert(0, item)
-                        del _news_items[_NEWS_MAX_ITEMS:]
-                    logger.info(f"[ScreenerNews] Grok: {item['impact']} — {item['headline'][:60]}")
-            except Exception as e:
-                logger.debug(f"[ScreenerNews] Grok worker error: {e}")
-            _news_grok_ts = now
+        # Grok breaking-news poll disabled — RSS feeds cover awareness at zero cost.
+        # Was firing every 180s = ~480 calls/day = largest API cost driver.
 
         time.sleep(10)
 

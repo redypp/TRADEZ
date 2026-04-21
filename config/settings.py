@@ -260,6 +260,10 @@ PORTFOLIO_HEAT_DAILY       = float(os.getenv("PORTFOLIO_HEAT_DAILY",       "0.03
 # Combined portfolio heat cap (both strategy types together)
 PORTFOLIO_HEAT_COMBINED    = float(os.getenv("PORTFOLIO_HEAT_COMBINED",    "0.06"))   # 6%
 
+# Sector concentration cap — prevents correlated names (e.g. NVDA+AMD+AVGO+TSM)
+# from all consuming the risk budget on the same macro move.
+SECTOR_HEAT_CAP            = float(os.getenv("SECTOR_HEAT_CAP",            "0.02"))   # 2% per sector
+
 # Consecutive loss scale-down for daily strategies (BRT has its own: BRT_LOSING_STREAK_*)
 LOSING_STREAK_MAX_DAILY         = int(os.getenv("LOSING_STREAK_MAX_DAILY",         "3"))
 LOSING_STREAK_RISK_FACTOR_DAILY = float(os.getenv("LOSING_STREAK_RISK_FACTOR_DAILY","0.5"))

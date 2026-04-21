@@ -379,7 +379,7 @@ class MomentumSwingStrategy(AbstractStrategy):
         )
 
         if breakout_signal:
-            stop  = support - 0.25 * current_atr   # below consolidation base
+            stop  = support - 0.5 * current_atr    # below consolidation base (0.5 ATR buffer — prior 0.25 was whipsawing on tight ranges)
             risk  = float(today["close"]) - stop
             if risk <= 0:
                 return df  # invalid setup — stop above entry
@@ -420,7 +420,7 @@ class MomentumSwingStrategy(AbstractStrategy):
         )
 
         if pullback_signal:
-            stop  = float(today["low"]) - 0.1 * current_atr   # below pullback low
+            stop  = float(today["low"]) - 0.25 * current_atr  # below pullback low (0.25 ATR buffer — prior 0.1 was inside typical wick range)
             risk  = float(today["close"]) - stop
             if risk <= 0:
                 return df  # invalid setup — stop above entry

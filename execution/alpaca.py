@@ -228,37 +228,44 @@ class AlpacaBroker(BrokerBase):
 
     def modify_stop(self, symbol: str, new_stop: float) -> bool:
         """
-        Move the stop-loss on an open bracket order to new_stop.
-        Finds the working stop leg of the bracket and replaces it.
+        Move the stop-loss on every open bracket's stop leg for this symbol.
+
+        SWING trades split into two brackets (main + runner) — both need the
+        breakeven move, otherwise only the runner (or only the main) is
+        protected and the other half keeps its original loss stop.
         """
         self._ensure_connected()
         try:
             from alpaca.trading.enums import QueryOrderStatus
             from alpaca.trading.requests import ReplaceOrderRequest
 
-            # Find working stop orders for this symbol
-            orders = self._client.get_orders(
-                filter=QueryOrderStatus.OPEN,
-            )
-            stop_order = None
-            for o in orders:
-                if (o.symbol == symbol.upper()
-                        and o.order_type == "stop"
-                        and o.status in ("new", "accepted", "partially_filled")):
-                    stop_order = o
-                    break
+            orders = self._client.get_orders(filter=QueryOrderStatus.OPEN)
+            stop_orders = [
+                o for o in orders
+                if o.symbol == symbol.upper()
+                and o.order_type == "stop"
+                and o.status in ("new", "accepted", "partially_filled")
+            ]
 
-            if stop_order is None:
+            if not stop_orders:
                 logger.warning(f"modify_stop({symbol}): no working stop order found")
                 return False
 
-            replace_req = ReplaceOrderRequest(
-                qty=int(float(stop_order.qty)),
-                stop_price=round(new_stop, 2),
-            )
-            self._client.replace_order_by_id(str(stop_order.id), replace_req)
-            logger.info(f"modify_stop({symbol}): stop moved to {new_stop:.2f}")
-            return True
+            moved = 0
+            for stop_order in stop_orders:
+                try:
+                    replace_req = ReplaceOrderRequest(
+                        qty=int(float(stop_order.qty)),
+                        stop_price=round(new_stop, 2),
+                    )
+                    self._client.replace_order_by_id(str(stop_order.id), replace_req)
+                    moved += 1
+                except Exception as inner:
+                    logger.warning(f"modify_stop({symbol}): leg {stop_order.id} failed: {inner}")
+
+            if moved:
+                logger.info(f"modify_stop({symbol}): moved {moved}/{len(stop_orders)} stop leg(s) to {new_stop:.2f}")
+            return moved > 0
 
         except Exception as e:
             logger.error(f"modify_stop({symbol}) failed: {e}")

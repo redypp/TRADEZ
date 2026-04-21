@@ -633,7 +633,8 @@ def get_fundamental_gate(fund: dict) -> tuple[bool, str]:
     Blocks if:
       - Analysts actively DOWNGRADING with <40 fundamental score
       - Insider selling heavily + score < 45
-      - Earnings within 5 days (binary event — not a swing, it's a gamble)
+      - Earnings within 10 days (binary event — swings hold 5-30d so anything
+        under 10d can get caught holding through the report unhedged)
       - Fundamental grade is D (score < 45)
     """
     score = fund.get("fundamental_score", 50)
@@ -641,7 +642,7 @@ def get_fundamental_gate(fund: dict) -> tuple[bool, str]:
 
     # Hard blocks
     edays = fund.get("earnings_in_days")
-    if edays is not None and edays <= 5:
+    if edays is not None and edays <= 10:
         return False, f"Earnings in {edays} days — binary event risk, skip"
 
     if grade == "D":

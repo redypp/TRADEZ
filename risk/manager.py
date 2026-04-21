@@ -50,6 +50,62 @@ class OpenTrade:
 # symbol → OpenTrade for current session
 OPEN_TRADES: dict[str, OpenTrade] = {}
 
+
+# ─── Sector map for concentration caps ────────────────────────────────────────
+# Used by _check_sector_heat to block stacking 5+ semis on the same macro chip
+# rally. Unmapped symbols fall into "OTHER" and share a single bucket together.
+SECTOR_MAP: dict[str, str] = {
+    # Semiconductors
+    "NVDA": "SEMIS", "AMD": "SEMIS", "AVGO": "SEMIS", "TSM": "SEMIS",
+    "QCOM": "SEMIS", "INTC": "SEMIS", "MU": "SEMIS", "AMAT": "SEMIS",
+    "LRCX": "SEMIS", "KLAC": "SEMIS", "TXN": "SEMIS", "ADI": "SEMIS",
+    # Software + platform
+    "MSFT": "SOFTWARE", "ORCL": "SOFTWARE", "CRM": "SOFTWARE", "ADBE": "SOFTWARE",
+    "INTU": "SOFTWARE", "NOW": "SOFTWARE", "SNOW": "SOFTWARE", "MDB": "SOFTWARE",
+    "DDOG": "SOFTWARE", "ZS": "SOFTWARE", "CRWD": "SOFTWARE", "PANW": "SOFTWARE",
+    "NET": "SOFTWARE", "PLTR": "SOFTWARE", "SHOP": "SOFTWARE", "IBM": "SOFTWARE",
+    # Mega-cap tech platforms
+    "AAPL": "MEGATECH", "GOOGL": "MEGATECH", "GOOG": "MEGATECH", "META": "MEGATECH",
+    "NFLX": "MEGATECH", "CSCO": "MEGATECH", "FI": "MEGATECH",
+    # Consumer discretionary / e-commerce
+    "AMZN": "CONSUMER_DISC", "TSLA": "CONSUMER_DISC", "HD": "CONSUMER_DISC",
+    "LOW": "CONSUMER_DISC", "TJX": "CONSUMER_DISC", "TGT": "CONSUMER_DISC",
+    "NKE": "CONSUMER_DISC", "SBUX": "CONSUMER_DISC", "MCD": "CONSUMER_DISC",
+    "BKNG": "CONSUMER_DISC", "MAR": "CONSUMER_DISC", "CMG": "CONSUMER_DISC",
+    "DIS": "CONSUMER_DISC", "ABNB": "CONSUMER_DISC", "UBER": "CONSUMER_DISC",
+    "GM": "CONSUMER_DISC",
+    # Comms
+    "T": "COMMS", "TMUS": "COMMS", "VZ": "COMMS",
+    # Financials
+    "JPM": "FINANCIALS", "BAC": "FINANCIALS", "MS": "FINANCIALS", "GS": "FINANCIALS",
+    "C": "FINANCIALS", "WFC": "FINANCIALS", "BLK": "FINANCIALS", "SPGI": "FINANCIALS",
+    "V": "FINANCIALS", "MA": "FINANCIALS", "AXP": "FINANCIALS", "SCHW": "FINANCIALS",
+    "COF": "FINANCIALS", "USB": "FINANCIALS", "PNC": "FINANCIALS", "PYPL": "FINANCIALS",
+    # Healthcare
+    "UNH": "HEALTHCARE", "LLY": "HEALTHCARE", "JNJ": "HEALTHCARE", "ABBV": "HEALTHCARE",
+    "MRK": "HEALTHCARE", "PFE": "HEALTHCARE", "ABT": "HEALTHCARE", "TMO": "HEALTHCARE",
+    "DHR": "HEALTHCARE", "AMGN": "HEALTHCARE", "ISRG": "HEALTHCARE", "REGN": "HEALTHCARE",
+    "VRTX": "HEALTHCARE", "BMY": "HEALTHCARE", "GILD": "HEALTHCARE", "MDT": "HEALTHCARE",
+    # Energy
+    "XOM": "ENERGY", "CVX": "ENERGY", "COP": "ENERGY", "SLB": "ENERGY", "EOG": "ENERGY",
+    # Industrials
+    "BA": "INDUSTRIALS", "CAT": "INDUSTRIALS", "GE": "INDUSTRIALS", "HON": "INDUSTRIALS",
+    "LMT": "INDUSTRIALS", "RTX": "INDUSTRIALS", "UPS": "INDUSTRIALS", "FDX": "INDUSTRIALS",
+    "DE": "INDUSTRIALS",
+    # Staples
+    "WMT": "STAPLES", "PG": "STAPLES", "COST": "STAPLES", "PEP": "STAPLES", "MO": "STAPLES",
+    # Utilities
+    "NEE": "UTILITIES", "SO": "UTILITIES",
+    # Materials
+    "APD": "MATERIALS", "LIN": "MATERIALS", "SHW": "MATERIALS",
+    # REITs
+    "PLD": "REITS",
+}
+
+
+def _sector_of(symbol: str) -> str:
+    return SECTOR_MAP.get(symbol.upper(), "OTHER")
+
 # ─── SQLite path (same DB as trade_log.py) ────────────────────────────────────
 _DB_PATH = Path(__file__).parent.parent / "data" / "trades.db"
 
@@ -389,6 +445,7 @@ def check_all(
     _check_open_position(symbol, open_position_size)
     _check_max_open_positions()
     _check_portfolio_heat(account_equity, strategy_type=strategy_type)
+    _check_sector_heat(symbol, account_equity)
     point_val  = point_value or _get_point_value(symbol)
     contracts  = _check_position_size(symbol, signal, account_equity, point_val,
                                       size_boost=size_boost,
@@ -497,6 +554,38 @@ def _check_portfolio_heat(account_equity: float, strategy_type: str = "intraday"
         logger.warning(
             f"Portfolio heat ({strategy_type}) at {type_heat_pct*100:.1f}% — "
             f"approaching limit ({type_limit*100:.0f}%)"
+        )
+
+
+def _check_sector_heat(symbol: str, account_equity: float) -> None:
+    """
+    Block if adding this trade would push open sector exposure past SECTOR_HEAT_CAP.
+
+    Why: a semis rally can fire entries on NVDA+AMD+AVGO+TSM+MU the same day.
+    Without a sector cap, combined positions consume the entire 6% portfolio
+    heat on one correlated macro move — three names are a concentrated bet on
+    one factor, not diversification.
+    """
+    cap = getattr(settings, "SECTOR_HEAT_CAP", 0.02)
+    if cap <= 0 or account_equity <= 0:
+        return
+
+    sector = _sector_of(symbol)
+    if sector == "OTHER":
+        # Unmapped symbols don't enforce a sector cap (would group unrelated names)
+        return
+
+    same_sector = [t for t in OPEN_TRADES.values() if _sector_of(t.symbol) == sector]
+    if not same_sector:
+        return
+
+    sector_heat_dollars = sum(t.dollar_risk for t in same_sector)
+    sector_heat_pct = sector_heat_dollars / account_equity
+    if sector_heat_pct >= cap:
+        open_in_sector = [t.symbol for t in same_sector]
+        raise RiskBlock(
+            f"Sector concentration cap ({sector}): {sector_heat_pct*100:.1f}% "
+            f"already open in {open_in_sector}. Max per sector: {cap*100:.0f}%."
         )
 
 

@@ -43,9 +43,10 @@ TIMEOUT_GROK   = 10.0
 TIMEOUT_GPT4   = 10.0
 TIMEOUT_CLAUDE = 12.0
 
-CLAUDE_MODEL = "claude-opus-4-6"                # latest Claude Opus — best reasoning
-GPT4_MODEL   = "gpt-5.4"                       # latest GPT-5.4 flagship
-GROK_MODEL   = "grok-4-1-fast-reasoning"        # latest Grok 4.1 — X/Twitter + reasoning
+CLAUDE_MODEL        = "claude-opus-4-6"          # SIGNAL / PRE_MARKET — full reasoning
+CLAUDE_MODEL_CHEAP  = "claude-haiku-4-5"         # HOURLY — ~10x cheaper, fine for hourly summaries
+GPT4_MODEL   = "gpt-5.4"                         # latest GPT-5.4 flagship
+GROK_MODEL   = "grok-4-1-fast-reasoning"         # latest Grok 4.1 — X/Twitter + reasoning
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,7 +254,8 @@ async def _query_gpt4(context_json: str, context: dict,
 
 
 async def _query_claude_brief(context_json: str, grok_out: dict, gpt4_out: dict,
-                               strategy_id: str, signal_direction: str) -> dict:
+                               strategy_id: str, signal_direction: str,
+                               trigger: str = "SIGNAL") -> dict:
     from config import settings
     _default = {"headline": "AI Advisory unavailable",
                 "brief": "Claude not configured — add ANTHROPIC_API_KEY to .env",
@@ -273,9 +275,10 @@ async def _query_claude_brief(context_json: str, grok_out: dict, gpt4_out: dict,
             gpt4_json=json.dumps(gpt4_out, indent=2),
             context_json=context_json,
         )
+        model = CLAUDE_MODEL_CHEAP if trigger == "HOURLY" else CLAUDE_MODEL
         resp = await asyncio.wait_for(
             client.messages.create(
-                model=CLAUDE_MODEL,
+                model=model,
                 max_tokens=500,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],
@@ -311,9 +314,9 @@ async def _async_get_advisory(market_data: dict, strategy_id: str,
         _query_gpt4(context_json, context, strategy_id, signal_direction),
     )
 
-    # Claude synthesizes into a human brief
+    # Claude synthesizes into a human brief (Haiku for hourly, Opus for signal/pre-market)
     claude_out = await _query_claude_brief(
-        context_json, grok_out, gpt4_out, strategy_id, signal_direction
+        context_json, grok_out, gpt4_out, strategy_id, signal_direction, trigger
     )
 
     # Merge Grok's directional bias into Claude's trade idea if Claude didn't produce one
